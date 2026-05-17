@@ -2048,9 +2048,6 @@ export class ProductController {
                     sortStage = { esDestacado: -1, createdAt: -1 };
             }
 
-            // =================================================================
-            // FASE 4: FACETAS
-            // =================================================================
             pipeline.push({
                 $facet: {
                     products: [

@@ -1,7 +1,7 @@
 import PDFDocument from 'pdfkit';
 
 const COMPANY = {
-    nombre: "GOPHONE",
+    nombre: "NeoShop",
     ruc: "1078632515",
     direccion: "Jr. Bernardo O'Higgins 120",
     city: "Cañete, Lima - Perú",

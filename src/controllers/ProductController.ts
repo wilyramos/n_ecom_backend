@@ -35,22 +35,20 @@ export class ProductController {
                 complementarios,
             } = req.body;
 
-            const [selectedCategory, hasChildren] = await Promise.all([
-                Category.findById(categoria),
-                Category.exists({ parent: categoria })
-            ]);
+            // Modificaciones para permitir crear productos en todas las categorias
+            const selectedCategory = await Category.findById(categoria);
 
             if (!selectedCategory) {
                 res.status(400).json({ message: 'La categoría no existe' });
                 return;
             }
 
-            if (hasChildren) {
-                res.status(400).json({
-                    message: 'No se puede crear un producto en una categoría que tiene subcategorías'
-                });
-                return;
-            }
+            // if (hasChildren) {
+            //     res.status(400).json({
+            //         message: 'No se puede crear un producto en una categoría que tiene subcategorías'
+            //     });
+            //     return;
+            // }
 
             if (imagenes && imagenes.length > 15) {
                 res.status(400).json({ message: 'No se pueden subir más de 15 imágenes' });
@@ -387,9 +385,13 @@ export class ProductController {
             if (category) {
                 const categoryDoc = await Category.findOne({ slug: category });
                 if (categoryDoc) {
-                    filter.categoria = categoryDoc._id;
+                    // Obtener el array de IDs de toda la familia (padre + hijos)
+                    const rawFamilyIds = await getCategoryFamilyIds(categoryDoc._id.toString());
+                    const familyObjectIds = rawFamilyIds.map((id: any) => new Types.ObjectId(id));
+
+                    // Cambiar la igualdad por un operador $in
+                    filter.categoria = { $in: familyObjectIds };
                 } else {
-                    // Si no existe la categoría, forzamos a que no devuelva nada
                     filter.categoria = null;
                 }
             }
@@ -1401,10 +1403,18 @@ export class ProductController {
 
             // B) ETAPA $MATCH (Filtros duros)
             const matchStage: any = { isActive: true };
-
             if (category) {
                 const categoryDoc = await Category.findOne({ slug: category });
-                matchStage.categoria = categoryDoc ? categoryDoc._id : null;
+                if (categoryDoc) {
+                    // Obtener la familia completa de IDs de categorías
+                    const rawFamilyIds = await getCategoryFamilyIds(categoryDoc._id.toString());
+                    const familyObjectIds = rawFamilyIds.map((id: any) => new Types.ObjectId(id));
+
+                    // Filtrar usando el operador $in dentro del Match Stage
+                    matchStage.categoria = { $in: familyObjectIds };
+                } else {
+                    matchStage.categoria = null;
+                }
             }
 
             if (rest.brand) {

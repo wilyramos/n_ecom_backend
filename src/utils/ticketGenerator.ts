@@ -3,8 +3,8 @@ import PDFDocument from 'pdfkit';
 const COMPANY = {
     nombre: "NeoShop",
     ruc: "1078632515",
-    direccion: "Jr. Bernardo O'Higgins 120",
-    city: "Cañete, Lima - Perú",
+    direccion: "Av caminos del inca 257-Surco Piso 3 - Tda 326",
+    city: "Lima - Perú",
     telefono: "925054636",
 };
 
@@ -154,7 +154,7 @@ export const generateSaleTicket = (sale: any): Promise<Buffer> => {
         }
         
         currentY += 15;
-        doc.font('Helvetica-Bold').fontSize(8).fillColor('#000000').text('www.gophone.pe', { align: 'center', width: contentWidth });
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('#000000').text('www.neoshopimportaciones.com', { align: 'center', width: contentWidth });
 
         doc.end();
     });

@@ -1,10 +1,10 @@
 import { ISale } from "../models/Sale";
 
 const COMPANY = {
-    nombre: "GOPHONE",
+    nombre: "neoshop",
     ruc: "1078632515",
     direccion: "Jr. Bernardo Ohggins 120",
-    city: "Cañete, Lima - Perú",
+    city: "Lima - Perú, Lima - Perú",
     telefono: "925054636",
 };
 
@@ -141,5 +141,5 @@ export const generateSalePDF = (doc: PDFKit.PDFDocument, sale: ISale, logoPath?:
     doc.font("Helvetica").text(formatCurrency(sale.totalPrice), resumeColValue, currentY + 60, { width: 105, align: "right" });
 
     // Mensaje Final
-    doc.font("Helvetica-Oblique").text("Gracias por confiar en GoPhone.", 50, currentY + 100, { align: "center", width: 495 });
+    doc.font("Helvetica-Oblique").text("Gracias por confiar en neoshop.", 50, currentY + 100, { align: "center", width: 495 });
 };

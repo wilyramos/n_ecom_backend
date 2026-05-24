@@ -14,14 +14,14 @@ export function baseEmailTemplate({ title, content }: EmailTemplateParams): stri
     <body style="font-family: Arial, sans-serif; background: #ffffff; color: #333333; margin:0; padding:20px;">
       <div style="max-width:600px; margin:0 auto;">
         <div style="text-align:center; padding:20px 0;">
-          <img src="https://www.gophone.pe/logo.png" alt="GoPhone Logo" style="max-width:120px; height:auto;" />
+          <img src="https://www.neoshopimportaciones.com/logo.png" alt="neoshop Logo" style="max-width:120px; height:auto;" />
         </div>
         <h1 style="font-size:20px; text-align:center; margin:20px 0;">${title}</h1>
         <div style="font-size:14px; line-height:1;">
           ${content}
         </div>
         <div style="margin-top:30px; font-size:12px; text-align:center; color:#666;">
-          © ${new Date().getFullYear()} Gophone.pe<br/>
+          © ${new Date().getFullYear()} neoshopimportaciones.com<br/>
           Este mensaje fue enviado automáticamente. No respondas a este correo.
         </div>
       </div>

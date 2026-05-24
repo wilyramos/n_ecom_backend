@@ -3,9 +3,9 @@ import { IOrder } from "../models/Order";
 import { IUser } from "../models/User";
 
 const COMPANY = {
-    nombre: "GOPHONE PERÚ",
-    direccion: "Jr. Bernardo O'Higgins 120, Cañete, Lima",
-    telefono: "925 054 636"
+    nombre: "neoshop PERÚ",
+    direccion: "Av caminos del inca 257-Surco Piso 3 - Tda 326",
+    telefono: "902 900 653"
 };
 
 export const buildShippingLabel = (doc: PDFKit.PDFDocument, order: IOrder) => {
@@ -18,7 +18,7 @@ export const buildShippingLabel = (doc: PDFKit.PDFDocument, order: IOrder) => {
     const marginX = 20;
     let currentY = 20;
 
-    // 1. ZONA DEL REMITENTE (Gophone) - Letra pequeña
+    // 1. ZONA DEL REMITENTE (neoshop) - Letra pequeña
     doc.font("Helvetica-Bold").fontSize(10).text("REMITENTE:", marginX, currentY);
     doc.font("Helvetica").fontSize(9)
        .text(COMPANY.nombre, marginX, currentY + 12)

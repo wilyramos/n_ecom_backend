@@ -13,18 +13,18 @@ export class AuthEmailResend {
 
         try {
             const emailContent = baseEmailTemplate({
-                title: "Bienvenido a GoPhone",
+                title: "Bienvenido a neoshop",
                 content: `<p>Hola ${name},</p>
-                          <p>Gracias por registrarte en GoPhone. Estamos emocionados de tenerte con nosotros.</p>
+                          <p>Gracias por registrarte en neoshop. Estamos emocionados de tenerte con nosotros.</p>
                           <p>Si tienes alguna pregunta, no dudes en contactarnos.</p>
                           <p>Saludos,</p>
-                          <p>El equipo de GoPhone</p>`
+                          <p>El equipo de neoshop</p>`
             });
 
             const response = await resend.emails.send({
-                from: 'GoPhone <contacto@gophone.pe>',
+                from: 'neoshop <contacto@neoshopimportaciones.com>',
                 to: email,
-                subject: 'Bienvenido a GoPhone',
+                subject: 'Bienvenido a neoshop',
                 html: emailContent
             });
 
@@ -53,12 +53,12 @@ export class AuthEmailResend {
                 <p><a href="${resetLink}" style="color:#1a73e8;">Restablecer contraseña</a></p>
                 <p>Este enlace expirará en 15 minutos.</p>
                 <p>Si no realizaste esta solicitud, puedes ignorar este correo.</p>
-                <p>Saludos,<br/>El equipo de GoPhone</p>
+                <p>Saludos,<br/>El equipo de neoshop</p>
             `
             });
 
             const response = await resend.emails.send({
-                from: 'GoPhone <contacto@gophone.pe>',
+                from: 'neoshop <contacto@neoshopimportaciones.com>',
                 to: email,
                 subject: 'Restablecimiento de contraseña',
                 html: emailContent
@@ -86,11 +86,11 @@ export class AuthEmailResend {
                           <p>Tu contraseña ha sido actualizada exitosamente.</p>
                           <p>Si no realizaste esta acción, por favor contacta a soporte.</p>
                           <p>Saludos,</p>
-                          <p>El equipo de GoPhone</p>`
+                          <p>El equipo de neoshop</p>`
             });
 
             const response = await resend.emails.send({
-                from: 'GoPhone <contacto@gophone.pe>',
+                from: 'neoshop <contacto@neoshopimportaciones.com>',
                 to: email,
                 subject: 'Contraseña actualizada',
                 html: emailContent

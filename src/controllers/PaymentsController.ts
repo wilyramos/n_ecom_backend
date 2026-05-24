@@ -279,7 +279,7 @@ export class PaymentsController {
                 // binary_mode: true asegura que la respuesta de aprobación sea instantánea 
                 binary_mode: true,
                 // statement_descriptor aparece en el resumen de la tarjeta del cliente 
-                statement_descriptor: "GOPHONE.PE",
+                statement_descriptor: "neoshopimportaciones.com",
                 // mapeo de items
                 items: order.items.map((item) => ({
                     id: item.productId.toString(), // [cite: 37-38]

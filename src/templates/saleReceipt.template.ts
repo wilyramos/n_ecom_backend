@@ -5,12 +5,12 @@ import { IOrder } from "../models/Order";
 import { IUser } from "../models/User";
 
 const COMPANY = {
-    nombre: "GOPHONE",
+    nombre: "neoshop",
     ruc: "1078632515",
-    direccion: "Jr. Bernardo O'Higgins 120",
-    city: "Cañete, Lima - Perú",
+    direccion: "Av caminos del inca 257-Surco Piso 3 - Tda 326",
+    city: "Lima - Perú, Lima - Perú",
     telefono: "925054636",
-    email: "ventas@gophone.pe",
+    email: "ventas@neoshopimportaciones.com",
 };
 
 const COLORS = {

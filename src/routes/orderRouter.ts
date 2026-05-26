@@ -1,3 +1,5 @@
+//File: backend/src/routes/orderRouter.ts
+
 import { Router } from 'express';
 import { body, param } from 'express-validator';
 import { OrderController } from '../controllers/OrderController';
@@ -12,7 +14,6 @@ const router = Router();
 
 // Crear Orden
 router.post('/',
-    authenticate,
     OrderController.createOrder
 );
 
@@ -25,12 +26,10 @@ router.get('/user/me',
 
 // Obtener detalle de una orden por ID (Admin o Dueño de la orden)
 router.get('/:id',
-    authenticate,
     param('id').isMongoId().withMessage('ID no válido'),
     handleInputErrors,
     OrderController.getOrderById
 );
-
 
 /** * RUTAS DE ADMINISTRACIÓN (SOLO ADMIN) 
  */

@@ -49,6 +49,7 @@ export class OrderController {
 
         try {
             const {
+                customerProfile, // Ahora el frontend siempre envía este objeto unificado
                 items,
                 subtotal,
                 shippingCost,
@@ -60,6 +61,11 @@ export class OrderController {
                 rawPaymentResponse,
                 currency = 'PEN'
             } = req.body;
+
+            if (!customerProfile) {
+                res.status(400).json({ message: 'Los datos de identificación del cliente son obligatorios' });
+                return;
+            }
 
             if (!items || !Array.isArray(items) || items.length === 0) {
                 res.status(400).json({ message: 'La orden debe tener al menos un producto' });
@@ -178,9 +184,11 @@ export class OrderController {
 
             const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
+
             const newOrder = await Order.create([{
                 orderNumber,
-                user: req.user._id,
+                user: req.user ? req.user._id : undefined, // Guarda la relación si existe sesión
+                customerProfile,                           // Siempre guarda la foto estática de los datos
                 items: orderItems,
                 subtotal,
                 shippingCost,
@@ -276,8 +284,8 @@ export class OrderController {
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
-                // .populate('user', 'nombre email')
-                // .populate('items.productId', 'nombre');
+            // .populate('user', 'nombre email')
+            // .populate('items.productId', 'nombre');
 
             const totalOrders = await Order.countDocuments(searchConditions);
 
@@ -330,21 +338,21 @@ export class OrderController {
     static async getOrderById(req: Request, res: Response) {
         try {
             const { id } = req.params;
-            const userId = req.user._id;
-            const rol = req.user.rol;
+            // const userId = req.user._id;
+            // const rol = req.user.rol;
 
             const order = await Order.findById(id)
-                .populate('user', 'nombre apellidos email') // Popula el usuario si es necesario
+                .populate('user', 'nombre apellidos email') // Populate el usuario si es necesario
 
             if (!order) {
                 res.status(404).json({ message: 'Orden no encontrada' });
                 return;
             }
 
-            if (rol !== 'administrador' && order.user._id.toString() !== userId.toString()) {
-                res.status(403).json({ message: 'No tienes permiso para acceder a esta orden' });
-                return;
-            }
+            // if (rol !== 'administrador' && order.user._id.toString() !== userId.toString()) {
+            //     res.status(403).json({ message: 'No tienes permiso para acceder a esta orden' });
+            //     return;
+            // }
 
             res.status(200).json(order);
         } catch (error) {

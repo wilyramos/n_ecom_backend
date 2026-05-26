@@ -30,6 +30,15 @@ export interface IShippingAddress {
     referencia?: string;
 }
 
+export interface ICustomerProfile {
+    nombre: string;
+    apellidos: string;
+    email: string;
+    telefono: string;
+    tipoDocumento: string;
+    numeroDocumento: string;
+}
+
 export interface IOrderItem {
     productId: Types.ObjectId | IProduct;
     variantId?: Types.ObjectId;
@@ -55,7 +64,8 @@ export interface IStatusHistory {
 
 export interface IOrder extends Document {
     orderNumber: string;
-    user: Types.ObjectId | IUser;
+    user?: Types.ObjectId | IUser;   // Opcional (Link relacional si está registrado)
+    customerProfile: ICustomerProfile; // REQUERIDO SIEMPRE (Copia estática histórica)
     items: IOrderItem[];
     subtotal: number;
     shippingCost: number;
@@ -76,6 +86,15 @@ const shippingAddressSchema = new Schema<IShippingAddress>({
     distrito: { type: String, required: true },
     direccion: { type: String, required: true },
     referencia: { type: String }
+}, { _id: false });
+
+const customerProfileSchema = new Schema<ICustomerProfile>({
+    nombre: { type: String, required: true },
+    apellidos: { type: String, required: true },
+    email: { type: String, required: true },
+    telefono: { type: String, required: true },
+    tipoDocumento: { type: String, required: true },
+    numeroDocumento: { type: String, required: true },
 }, { _id: false });
 
 const orderItemSchema = new Schema<IOrderItem>({
@@ -104,7 +123,8 @@ const statusHistorySchema = new Schema<IStatusHistory>({
 // Schema principal de la orden
 const orderSchema = new Schema<IOrder>({
     orderNumber: { type: String, unique: true },
-    user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    user: { type: Schema.Types.ObjectId, ref: 'User', required: false }, // Opcional
+    customerProfile: { type: customerProfileSchema, required: true },
     items: { type: [orderItemSchema], required: true },
     subtotal: { type: Number, required: true },
     shippingCost: { type: Number, default: 0 },

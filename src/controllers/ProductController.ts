@@ -2059,6 +2059,7 @@ export class ProductController {
             }
 
             pipeline.push({
+
                 $facet: {
                     products: [
                         { $sort: sortStage },
@@ -2082,26 +2083,26 @@ export class ProductController {
                     ],
                     totalCount: [{ $count: 'count' }],
                     brands: [
-                        { $group: { _id: "$brand" } },
+                        { $group: { _id: "$brand", count: { $sum: 1 } } },
                         { $lookup: { from: "brands", localField: "_id", foreignField: "_id", as: "b" } },
                         { $unwind: "$b" },
-                        { $project: { id: "$b._id", nombre: "$b.nombre", slug: "$b.slug" } },
+                        { $project: { id: "$b._id", nombre: "$b.nombre", slug: "$b.slug", count: 1 } },
                         { $sort: { nombre: 1 } }
                     ],
                     lines: [
                         { $match: { line: { $exists: true, $ne: null } } },
-                        { $group: { _id: "$line" } },
+                        { $group: { _id: "$line", count: { $sum: 1 } } },
                         { $addFields: { lObj: { $toObjectId: "$_id" } } },
                         { $lookup: { from: "lines", localField: "lObj", foreignField: "_id", as: "l" } },
                         { $unwind: "$l" },
-                        { $project: { id: "$l._id", nombre: "$l.nombre", slug: "$l.slug" } },
+                        { $project: { id: "$l._id", nombre: "$l.nombre", slug: "$l.slug", count: 1 } },
                         { $sort: { nombre: 1 } }
                     ],
                     categories: [
-                        { $group: { _id: "$categoria" } },
+                        { $group: { _id: "$categoria", count: { $sum: 1 } } },
                         { $lookup: { from: "categories", localField: "_id", foreignField: "_id", as: "c" } },
                         { $unwind: "$c" },
-                        { $project: { id: "$c._id", nombre: "$c.nombre", slug: "$c.slug" } },
+                        { $project: { id: "$c._id", nombre: "$c.nombre", slug: "$c.slug", count: 1 } },
                         { $sort: { nombre: 1 } }
                     ],
                     atributos: [
@@ -2116,7 +2117,10 @@ export class ProductController {
                             }
                         },
                         { $unwind: "$allAttrs" },
-                        { $group: { _id: "$allAttrs.k", values: { $addToSet: "$allAttrs.v" } } },
+                        // Agrupamos por Key y Value para contar las ocurrencias exactas
+                        { $group: { _id: { k: "$allAttrs.k", v: "$allAttrs.v" }, count: { $sum: 1 } } },
+                        // Volvemos a agrupar solo por Key para reconstruir el array
+                        { $group: { _id: "$_id.k", values: { $push: { value: "$_id.v", count: "$count" } } } },
                         { $project: { name: "$_id", values: 1, _id: 0 } }
                     ],
                     price: [
@@ -2230,6 +2234,7 @@ export class ProductController {
 
             // 4. FACETAS (Estructura para CatalogResponseSchema)
             pipeline.push({
+
                 $facet: {
                     products: [
                         { $sort: sortStage },
@@ -2237,7 +2242,8 @@ export class ProductController {
                         { $limit: limitNum },
                         { $lookup: { from: 'brands', localField: 'brand', foreignField: '_id', as: 'brand' } },
                         { $unwind: { path: '$brand', preserveNullAndEmptyArrays: true } },
-                        { $lookup: { from: 'productlines', localField: 'line', foreignField: '_id', as: 'line' } },
+                        { $addFields: { lineObjectId: { $toObjectId: "$line" } } },
+                        { $lookup: { from: 'lines', localField: 'lineObjectId', foreignField: '_id', as: 'line' } },
                         { $unwind: { path: '$line', preserveNullAndEmptyArrays: true } },
                         {
                             $project: {
@@ -2245,33 +2251,33 @@ export class ProductController {
                                 imagenes: 1, stock: 1, atributos: 1, variants: 1,
                                 brand: { nombre: 1, slug: 1 },
                                 line: { nombre: 1, slug: 1 },
-                                categoria: 1, esDestacado: 1, esNuevo: 1, createdAt: 1
+                                categoria: 1, esDestacado: 1, esNuevo: 1,
+                                rating: 1, numReviews: 1, discountAmount: 1
                             }
                         }
                     ],
                     totalCount: [{ $count: 'count' }],
                     brands: [
-                        { $group: { _id: "$brand" } },
-                        { $match: { _id: { $ne: null } } },
+                        { $group: { _id: "$brand", count: { $sum: 1 } } },
                         { $lookup: { from: "brands", localField: "_id", foreignField: "_id", as: "b" } },
                         { $unwind: "$b" },
-                        { $project: { id: { $toString: "$b._id" }, nombre: "$b.nombre", slug: "$b.slug" } },
+                        { $project: { id: "$b._id", nombre: "$b.nombre", slug: "$b.slug", count: 1 } },
                         { $sort: { nombre: 1 } }
                     ],
                     lines: [
-                        { $group: { _id: "$line" } },
-                        { $match: { _id: { $ne: null } } },
-                        { $lookup: { from: "productlines", localField: "_id", foreignField: "_id", as: "l" } },
+                        { $match: { line: { $exists: true, $ne: null } } },
+                        { $group: { _id: "$line", count: { $sum: 1 } } },
+                        { $addFields: { lObj: { $toObjectId: "$_id" } } },
+                        { $lookup: { from: "lines", localField: "lObj", foreignField: "_id", as: "l" } },
                         { $unwind: "$l" },
-                        { $project: { id: { $toString: "$l._id" }, nombre: "$l.nombre", slug: "$l.slug" } },
+                        { $project: { id: "$l._id", nombre: "$l.nombre", slug: "$l.slug", count: 1 } },
                         { $sort: { nombre: 1 } }
                     ],
                     categories: [
-                        { $group: { _id: "$categoria" } },
-                        { $match: { _id: { $ne: null } } },
+                        { $group: { _id: "$categoria", count: { $sum: 1 } } },
                         { $lookup: { from: "categories", localField: "_id", foreignField: "_id", as: "c" } },
                         { $unwind: "$c" },
-                        { $project: { id: { $toString: "$c._id" }, nombre: "$c.nombre", slug: "$c.slug" } },
+                        { $project: { id: "$c._id", nombre: "$c.nombre", slug: "$c.slug", count: 1 } },
                         { $sort: { nombre: 1 } }
                     ],
                     atributos: [
@@ -2280,23 +2286,19 @@ export class ProductController {
                                 allAttrs: {
                                     $concatArrays: [
                                         { $objectToArray: { $ifNull: ["$atributos", {}] } },
-                                        {
-                                            $reduce: {
-                                                input: { $ifNull: ["$variants", []] },
-                                                initialValue: [],
-                                                in: { $concatArrays: ["$$value", { $objectToArray: { $ifNull: ["$$this.atributos", {}] } }] }
-                                            }
-                                        }
+                                        { $reduce: { input: { $ifNull: ["$variants", []] }, initialValue: [], in: { $concatArrays: ["$$value", { $objectToArray: { $ifNull: ["$$this.atributos", {}] } }] } } }
                                     ]
                                 }
                             }
                         },
                         { $unwind: "$allAttrs" },
-                        { $group: { _id: "$allAttrs.k", values: { $addToSet: "$allAttrs.v" } } },
-                        { $project: { name: "$_id", values: 1, _id: 0 } },
-                        { $sort: { name: 1 } }
+                        // Agrupamos por Key y Value para contar las ocurrencias exactas
+                        { $group: { _id: { k: "$allAttrs.k", v: "$allAttrs.v" }, count: { $sum: 1 } } },
+                        // Volvemos a agrupar solo por Key para reconstruir el array
+                        { $group: { _id: "$_id.k", values: { $push: { value: "$_id.v", count: "$count" } } } },
+                        { $project: { name: "$_id", values: 1, _id: 0 } }
                     ],
-                    priceRangeFacet: [
+                    price: [
                         { $group: { _id: null, min: { $min: "$precio" }, max: { $max: "$precio" } } }
                     ]
                 }

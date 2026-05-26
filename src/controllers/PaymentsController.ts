@@ -55,7 +55,6 @@ export class PaymentsController {
             res.status(500).json({ message: 'Internal Server Error' });
         }
     }
-
     static async createPreferenceWithOrderId(req: Request, res: Response) {
         try {
             const { orderId } = req.body;
@@ -64,7 +63,7 @@ export class PaymentsController {
                 return;
             }
 
-            // buscar la orden en la base de datos y obtener los items y la información del pagador
+            // Buscar la orden en la base de datos
             const order = await Order.findById(orderId);
 
             console.log("order", order);
@@ -73,31 +72,37 @@ export class PaymentsController {
                 return;
             }
 
-            const user = await User.findById(order.user);
-            console.log("user", user);
-            if (!user) {
-                res.status(404).json({ message: 'User not found' });
+            // Ahora se extrae la información directamente de order.customerProfile mapeado en el formulario.
+            const profile = order.customerProfile;
+            if (!profile || !profile.email) {
+                res.status(400).json({ message: 'Customer profile information is missing in order' });
                 return;
             }
 
-            // Buscar los cada item del pedido en la base de datos si es necesario
-            const items = await Promise.all(order.items.map(async (item) => {
-                const product = await Product.findById(item.productId);
-                return {
-                    id: String(product._id),
-                    title: product.nombre,
-                    quantity: item.quantity,
-                    unit_price: product.precio
-                };
+            // Mapear los items usando los datos ya estructurados y guardados en la orden
+            const items = order.items.map((item) => ({
+                id: String(item.productId),
+                title: item.nombre,
+                quantity: item.quantity,
+                unit_price: item.price
             }));
 
             console.log("items", items);
 
+            // Estructurar el objeto pagador con los datos del customerProfile
             const payer = {
-                email: user.email,
-                first_name: user.nombre,
-                // Agregar más campos si es necesario
+                email: profile.email,
+                first_name: profile.nombre,
+                last_name: profile.apellidos,
+                phone: {
+                    number: profile.telefono
+                },
+                identification: {
+                    type: profile.tipoDocumento,
+                    number: profile.numeroDocumento
+                }
             };
+
             const preferencePayload = {
                 items: items,
                 payer: payer,
@@ -124,6 +129,7 @@ export class PaymentsController {
                 init_point: response.init_point
             });
         } catch (error) {
+            console.error('Error creating Mercado Pago preference:', error);
             res.status(500).json({ message: 'Internal Server Error' });
         }
     }

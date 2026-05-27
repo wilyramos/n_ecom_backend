@@ -1,3 +1,5 @@
+//File: backend/src/modules/sliderbanner/sliderbanner.model.ts
+
 import mongoose, { Schema, Document } from 'mongoose';
 
 export type SliderLayout =

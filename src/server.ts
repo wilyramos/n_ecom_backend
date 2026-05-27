@@ -15,6 +15,7 @@ import webhookRouter from './routes/webhookRouter'
 import userRouter from './routes/userRouter'
 import purchaseRouter from './routes/purchaseRouter'
 import brandRouter from './routes/brandRouter'
+import claimRouter from './modules/claim/claim.router'
 
 //Cors
 import cors from 'cors'
@@ -62,6 +63,7 @@ app.use('/api/cash/v2', cashRouter)
 app.use('/api/reports/v2', reportRouter)
 app.use('/api/slider-banners', sliderBannerRouter)
 app.use('/api/collections', collectionRouter) // Agregado router para colecciones
+app.use('/api/claims', claimRouter) // Agregado router para reclamaciones
 
 // Routers
 app.use('/api/auth', authRouter)

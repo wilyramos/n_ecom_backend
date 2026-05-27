@@ -1,5 +1,4 @@
 // File: backend/src/modules/claim/claim.model.ts
-
 import mongoose, { Schema, Document } from 'mongoose';
 
 export type ClaimDocumentType = 'DNI' | 'CE' | 'RUC';
@@ -31,17 +30,10 @@ export interface IClaimAdminResolution {
 }
 
 export interface IClaim extends Document {
-    // ── Registro Obligatorio INDECOPI ──────
     correlativo: string;
-
-    // ── Contenido Formulario ────────────────
     consumer: IClaimConsumer;
     detail: IClaimDetail;
-
-    // ── Control Administrativo ─────────────
     resolution: IClaimAdminResolution;
-
-    // ── Timestamps automáticos de Mongoose ──
     createdAt: Date;
     updatedAt: Date;
 }
@@ -54,47 +46,34 @@ const claimSchema = new Schema<IClaim>(
             unique: true,
             trim: true
         },
-
         consumer: {
-            type: {
-                nombres: { type: String, required: true, trim: true },
-                tipoDocumento: { type: String, required: true, enum: ['DNI', 'CE', 'RUC'] },
-                numeroDocumento: { type: String, required: true, trim: true },
-                celular: { type: String, required: true, trim: true },
-                email: { type: String, required: true, trim: true, lowercase: true },
-                direccion: { type: String, required: true, trim: true },
-                ciudad: { type: String, required: true, trim: true },
-                region: { type: String, required: true, trim: true },
-            },
-            required: true
+            nombres: { type: String, required: true, trim: true },
+            tipoDocumento: { type: String, required: true, enum: ['DNI', 'CE', 'RUC'] },
+            numeroDocumento: { type: String, required: true, trim: true },
+            celular: { type: String, required: true, trim: true },
+            email: { type: String, required: true, trim: true, lowercase: true },
+            direccion: { type: String, required: true, trim: true },
+            ciudad: { type: String, required: true, trim: true },
+            region: { type: String, required: true, trim: true }
         },
-
         detail: {
-            type: {
-                tipoReclamo: { type: String, required: true, enum: ['Queja', 'Reclamo'] },
-                fechaIncidencia: { type: Date, required: true },
-                detalle: { type: String, required: true, trim: true },
-                pedido: { type: String, required: true, trim: true },
-            },
-            required: true
+            tipoReclamo: { type: String, required: true, enum: ['Queja', 'Reclamo'] },
+            fechaIncidencia: { type: Date, required: true },
+            detalle: { type: String, required: true, trim: true },
+            pedido: { type: String, required: true, trim: true }
         },
-
         resolution: {
-            type: {
-                estado: { type: String, enum: ['Pendiente', 'En Proceso', 'Resuelto'], default: 'Pendiente' },
-                respuestaProveedor: { type: String, trim: true, default: '' },
-                fechaRespuesta: { type: Date }
-            },
-            default: () => ({ estado: 'Pendiente', respuestaProveedor: '' })
+            estado: { type: String, enum: ['Pendiente', 'En Proceso', 'Resuelto'], default: 'Pendiente' },
+            respuestaProveedor: { type: String, trim: true, default: '' },
+            fechaRespuesta: { type: Date }
         }
     },
     { timestamps: true }
 );
 
-// ── Índices de Rendimiento y Auditoría ──
 claimSchema.index({ correlativo: 1 }, { unique: true });
 claimSchema.index({ 'consumer.email': 1 });
 claimSchema.index({ 'consumer.numeroDocumento': 1 });
-claimSchema.index({ 'resolution.estado': 1, createdAt: -1 }); // Optimiza la vista del panel de administración
+claimSchema.index({ 'resolution.estado': 1, createdAt: -1 });
 
 export default mongoose.model<IClaim>('Claim', claimSchema);

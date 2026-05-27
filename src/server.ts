@@ -15,7 +15,6 @@ import webhookRouter from './routes/webhookRouter'
 import userRouter from './routes/userRouter'
 import purchaseRouter from './routes/purchaseRouter'
 import brandRouter from './routes/brandRouter'
-import claimRouter from './modules/claim/claim.router'
 
 //Cors
 import cors from 'cors'
@@ -29,6 +28,7 @@ import saleRouterV2 from './modules/sale/sale.routes'
 import cashRouter from './modules/cash/cash.routes'
 import reportRouter from './modules/reports/report.routes'
 import sliderBannerRouter from './modules/sliderbanner/sliderbanner.routes'
+import claimRouter from './modules/claim/claim.router'
 
 import setupSwagger from './config/swagger.config'
 import collectionRouter from './modules/collection/collection.router'
@@ -63,7 +63,7 @@ app.use('/api/cash/v2', cashRouter)
 app.use('/api/reports/v2', reportRouter)
 app.use('/api/slider-banners', sliderBannerRouter)
 app.use('/api/collections', collectionRouter) // Agregado router para colecciones
-app.use('/api/claims', claimRouter) // Agregado router para reclamaciones
+app.use('/api/claims', claimRouter)
 
 // Routers
 app.use('/api/auth', authRouter)

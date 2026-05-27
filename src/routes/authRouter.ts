@@ -63,6 +63,7 @@ router.post('/create-user-if-not-exists',
     body('numeroDocumento').notEmpty().withMessage('Número de documento es requerido'),
     body('telefono').optional().isString().withMessage('Teléfono debe ser una cadena de texto'),
     handleInputErrors,
+    authenticate,
     isAdminOrVendedor,
     AuthController.createUserIfNotExists,
 )

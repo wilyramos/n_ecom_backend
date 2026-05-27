@@ -1,95 +1,128 @@
 // File: backend/src/modules/claim/claim.service.ts
-import Claim, { IClaim, IClaimConsumer, IClaimDetail, ClaimStatus } from './claim.model';
+import Claim, { IClaim } from './claim.model';
+import { AppError } from '../../utils/AppError';
 
 export class ClaimService {
     /**
-     * Genera el correlativo INDECOPI con reintentos ante colisiones de unicidad.
-     * Se reintenta hasta 5 veces para absorber race conditions en alta concurrencia.
+     * Genera el correlativo anual incremental según el estándar de INDECOPI
      */
-    private async generateCorrelativo(retries = 5): Promise<string> {
+    private static async generateCorrelative(): Promise<string> {
         const currentYear = new Date().getFullYear();
-        const startOfYear = new Date(`${currentYear}-01-01T00:00:00.000Z`);
-        const endOfYear   = new Date(`${currentYear}-12-31T23:59:59.999Z`);
+        const prefix = 'REC';
 
-        for (let attempt = 0; attempt < retries; attempt++) {
-            const count = await Claim.countDocuments({
-                createdAt: { $gte: startOfYear, $lte: endOfYear }
-            });
+        const lastClaim = await Claim.findOne({
+            correlativo: new RegExp(`^${prefix}-${currentYear}-`)
+        })
+        .sort({ createdAt: -1 })
+        .select('correlativo')
+        .lean();
 
-            const paddedSequence = String(count + 1 + attempt).padStart(5, '0');
-            const correlativo    = `R-${currentYear}-${paddedSequence}`;
-
-            // Verifica que no exista ya ese correlativo antes de devolverlo
-            const exists = await Claim.exists({ correlativo });
-            if (!exists) return correlativo;
-        }
-
-        // Fallback: usa timestamp para garantizar unicidad
-        const ts = Date.now().toString().slice(-5);
-        return `R-${new Date().getFullYear()}-${ts}`;
-    }
-
-    /**
-     * Registra un nuevo reclamo y genera su número correlativo INDECOPI.
-     */
-    public async createClaim(
-        consumer: IClaimConsumer,
-        detail: IClaimDetail
-    ): Promise<IClaim> {
-        const correlativo = await this.generateCorrelativo();
-
-        const newClaim = new Claim({ correlativo, consumer, detail });
-
-        try {
-            return await newClaim.save();
-        } catch (error: any) {
-            // E11000 = duplicate key (colisión de correlativo en concurrencia extrema)
-            if (error.code === 11000 && error.keyPattern?.correlativo) {
-                const fallbackCorrelativo = await this.generateCorrelativo(3);
-                newClaim.correlativo = fallbackCorrelativo;
-                return await newClaim.save();
+        let nextSequence = 1;
+        if (lastClaim && lastClaim.correlativo) {
+            const parts = lastClaim.correlativo.split('-');
+            const lastSequence = parseInt(parts[parts.length - 1], 10);
+            if (!isNaN(lastSequence)) {
+                nextSequence = lastSequence + 1;
             }
-            throw error;
         }
+
+        const paddedSequence = String(nextSequence).padStart(5, '0');
+        return `${prefix}-${currentYear}-${paddedSequence}`;
     }
 
     /**
-     * Obtiene todos los reclamos ordenados por fecha de creación descendente.
-     * Uso: panel de administración.
+     * Registra un reclamo de manera pública
      */
-    public async getAllClaims(): Promise<IClaim[]> {
-        return Claim.find().sort({ createdAt: -1 }).lean();
+    static async create(data: Partial<IClaim>) {
+        if (!data.consumer || !data.detail) {
+            throw new AppError('Los datos del consumidor y el detalle de la incidencia son obligatorios.', 400);
+        }
+
+        data.correlativo = await this.generateCorrelative();
+        data.resolution = {
+            estado: 'Pendiente',
+            respuestaProveedor: '',
+            fechaRespuesta: undefined
+        };
+
+        return await new Claim(data).save();
     }
 
     /**
-     * Obtiene un reclamo por su correlativo INDECOPI.
+     * Listado paginado y filtrado exclusivo para administración
      */
-    public async getClaimByCorrelativo(correlativo: string): Promise<IClaim | null> {
-        return Claim.findOne({ correlativo }).lean();
+    static async getAll(filters: { estado?: string; search?: string; limit?: number; page?: number } = {}) {
+        const { estado, search, limit = 10, page = 1 } = filters;
+        const query: any = {};
+
+        if (estado) query['resolution.estado'] = estado;
+
+        if (search?.trim()) {
+            const regex = new RegExp(search, 'i');
+            query.$or = [
+                { correlativo: regex },
+                { 'consumer.nombres': regex },
+                { 'consumer.numeroDocumento': regex },
+                { 'consumer.email': regex }
+            ];
+        }
+
+        const [claims, total] = await Promise.all([
+            Claim.find(query)
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .sort({ createdAt: -1 }),
+            Claim.countDocuments(query)
+        ]);
+
+        return { claims, total, page, pages: Math.ceil(total / limit) };
     }
 
     /**
-     * Actualiza el estado de resolución de un reclamo (uso administrativo).
+     * Consulta pública de estado usando Correlativo + Documento de Identidad por privacidad
      */
-    public async updateResolution(
-        correlativo: string,
-        estado: ClaimStatus,
-        respuestaProveedor?: string
-    ): Promise<IClaim | null> {
-        return Claim.findOneAndUpdate(
-            { correlativo },
-            {
-                $set: {
-                    'resolution.estado': estado,
-                    ...(respuestaProveedor !== undefined && {
-                        'resolution.respuestaProveedor': respuestaProveedor
-                    }),
-                    ...(estado === 'Resuelto' && {
-                        'resolution.fechaRespuesta': new Date()
-                    })
-                }
-            },
-            { new: true, runValidators: true }
-        );
+    static async getStatusByPublicCredentials(correlativo: string, numeroDocumento: string) {
+        const claim = await Claim.findOne({
+            correlativo: correlativo.trim(),
+            'consumer.numeroDocumento': numeroDocumento.trim()
+        }).select('correlativo consumer.nombres resolution createdAt updatedAt');
+
+        if (!claim) {
+            throw new AppError('No se encontró ningún reclamo que coincida con las credenciales provistas.', 404);
+        }
+
+        return claim;
+    }
+
+    /**
+     * Detalle completo del reclamo (Backoffice)
+     */
+    static async getById(id: string) {
+        const claim = await Claim.findById(id);
+        if (!claim) throw new AppError('El reclamo solicitado no existe.', 404);
+        return claim;
+    }
+
+    /**
+     * Resuelve o actualiza el estado de la reclamación (Backoffice)
+     */
+    static async resolve(id: string, respuestaProveedor: string, estado: 'En Proceso' | 'Resuelto') {
+        if (!respuestaProveedor || respuestaProveedor.trim().length < 20) {
+            throw new AppError('La respuesta institucional debe contener una explicación clara de al menos 20 caracteres.', 400);
+        }
+
+        const updateData: any = {
+            'resolution.estado': estado,
+            'resolution.respuestaProveedor': respuestaProveedor.trim()
+        };
+
+        if (estado === 'Resuelto') {
+            updateData['resolution.fechaRespuesta'] = new Date();
+        }
+
+        const claim = await Claim.findByIdAndUpdate(id, { $set: updateData }, { new: true, runValidators: true });
+        if (!claim) throw new AppError('No se pudo encontrar el reclamo para actualizar.', 404);
+
+        return claim;
     }
 }

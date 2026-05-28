@@ -752,7 +752,7 @@ export class OrderController {
             // 2. Ruta de tu logo (Opcional, ajusta la ruta según tu servidor)
             // const logoPath = path.resolve(__dirname, '../../public/logo.png');
             const path = require('path');
-            const logoPath = path.join(process.cwd(), 'public', 'logobw.jpg');
+            const logoPath = path.join(process.cwd(), 'public', 'logocompleto.png');
 
             // 3. Usamos nuestro servicio genérico pasándole el template y los datos
             const pdfBuffer = await PdfService.generateBuffer(

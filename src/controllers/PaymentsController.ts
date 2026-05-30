@@ -260,75 +260,58 @@ export class PaymentsController {
         try {
             const { token, transaction_amount, payer, description, orderId } = req.body;
 
-            if (!token || !transaction_amount || !payer?.email) {
-                res.status(400).json({ message: 'Faltan datos requeridos (token, amount, email)' });
+            if (!token || !transaction_amount || !orderId) {
+                res.status(400).json({ message: 'Faltan datos requeridos (token, transaction_amount, orderId)' });
                 return;
             }
 
-            // 1. Buscamos la orden y al usuario simultáneamente para obtener toda la metadata
-            const [user, order] = await Promise.all([
-                User.findOne({ email: payer.email.toLowerCase() }),
-                Order.findById(orderId)
-            ]);
+            const order = await Order.findById(orderId);
+            if (!order) {
+                res.status(404).json({ message: 'Orden no encontrada en el sistema' });
+                return;
+            }
 
-            if (!user || !order) {
-                res.status(404).json({ message: 'Usuario u Orden no encontrados' });
+            const profile = order.customerProfile;
+            if (!profile) {
+                res.status(400).json({ message: 'La orden no contiene un perfil de cliente válido' });
                 return;
             }
 
             const paymentData = {
                 transaction_amount: Number(transaction_amount),
-                token: token,
-                description: description || `Pago de orden ${order.orderNumber || orderId}`,
+                token,
+                description: description || `Pago de orden ${order.orderNumber}`,
                 installments: 1,
                 payment_method_id: 'yape',
-                // binary_mode: true asegura que la respuesta de aprobación sea instantánea 
                 binary_mode: true,
-                // statement_descriptor aparece en el resumen de la tarjeta del cliente 
                 statement_descriptor: "neoshopimportaciones.com",
-                // mapeo de items
-                items: order.items.map((item) => ({
-                    id: item.productId.toString(), // [cite: 37-38]
-                    title: item.nombre, // [cite: 42-43]
-                    description: item.nombre, // [cite: 34-35]
-                    category_id: "electronics", // Categoría recomendada para tecnología 
-                    quantity: item.quantity, // [cite: 40-41]
-                    unit_price: item.price // [cite: 45-46]
+                items: order.items.map(item => ({
+                    id: item.productId.toString(),
+                    title: item.nombre,
+                    quantity: item.quantity,
+                    unit_price: item.price
                 })),
-
-                // 3. Información extendida del Payer [cite: 16, 17-30]
                 payer: {
-                    email: user.email, // [cite: 17-18]
-                    first_name: user.nombre, // [cite: 20-21]
-                    last_name: user.apellidos || "", // [cite: 26-27]
+                    email: profile.email,
+                    first_name: profile.nombre,
+                    last_name: profile.apellidos,
                     identification: {
-                        type: user.tipoDocumento || "DNI", // [cite: 23-24]
-                        number: user.numeroDocumento || "00000000" // [cite: 23-24]
+                        type: profile.tipoDocumento || "DNI",
+                        number: profile.numeroDocumento || "00000000"
                     },
-                    phone: {
-                        number: user.telefono || "" // [cite: 29-30]
-                    },
-                    // Se utiliza la dirección de envío como referencia para el motor de fraude [cite: 14-15]
+                    phone: { number: profile.telefono || "" },
                     address: {
                         zip_code: "",
                         street_name: order.shippingAddress.direccion,
-                        street_number: ""
+                        street_number: order.shippingAddress.numero || ""
                     }
                 },
-
-                // 4. Conciliación y Webhooks [cite: 51, 55-56, 63-64]
                 external_reference: orderId,
                 notification_url: process.env.MP_NOTIFICATION_URL,
-                metadata: {
-                    order_id: orderId
-                }
+                metadata: { order_id: orderId }
             };
 
-            console.log("Procesando pago Yape homologado:", paymentData);
-
             const response = await payment.create({ body: paymentData });
-
-            console.log("Respuesta Mercado Pago:", response);
 
             res.status(200).json({
                 status: response.status,

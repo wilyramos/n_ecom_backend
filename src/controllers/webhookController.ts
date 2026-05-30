@@ -115,17 +115,16 @@ export class WebhookController {
                 await session.commitTransaction();
                 session.endSession();
 
-                const user = order.user as any;
-                console.log(`📧Items de la orden:`, order.items);
-                if (user?.email) {
+                const customer = order.customerProfile;
+                if (customer?.email) {
                     await OrderEmail.sendOrderConfirmationEmail({
-                        email: user.email,
-                        name: user.nombre,
+                        email: customer.email,
+                        name: customer.nombre,
                         orderId: order._id.toString(),
                         totalPrice: order.totalPrice,
                         shippingMethod: order.shippingAddress.direccion,
                         items: order.items,
-                    });
+                    }).catch(err => console.error("⚠️ Error diferido enviando email:", err));
                 }
 
                 console.log(`✅ Pago aprobado y orden procesada: ${orderId}`);
@@ -265,14 +264,24 @@ export class WebhookController {
                 }
 
                 console.log(`✅ Los items de la orden son:`, order.items);
-                OrderEmail.sendOrderConfirmationEmail({
-                    email: order.user.email || notification.customer?.email,
-                    name: order.user.nombre || notification.customer?.name,
-                    orderId: order.id,
-                    totalPrice: order.totalPrice,
-                    shippingMethod: order.payment.method || "Izipay",
-                    items: order.items
-                });
+                const recipient = {
+                    email: (order.user as IUser)?.email || order.customerProfile.email,
+                    name: (order.user as IUser)?.nombre || order.customerProfile.nombre,
+                };
+
+                try {
+                    await OrderEmail.sendOrderConfirmationEmail({
+                        email: recipient.email,
+                        name: recipient.name,
+                        orderId: order.id,
+                        totalPrice: order.totalPrice,
+                        shippingMethod: order.payment.method || "Izipay",
+                        items: order.items
+                    });
+                } catch (emailError) {
+                    console.error("⚠️ Error al enviar email de confirmación:", emailError);
+                    // No lanzar — el pago ya fue procesado correctamente
+                }
 
             } else if (orderStatus === "UNPAID") {
                 order.payment.status = PaymentStatus.REJECTED;

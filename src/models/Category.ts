@@ -1,3 +1,5 @@
+//File: src/models/Category.ts
+
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 // Atributos posibles para productos de esta categoría

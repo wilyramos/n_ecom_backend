@@ -29,6 +29,7 @@ import cashRouter from './modules/cash/cash.routes'
 import reportRouter from './modules/reports/report.routes'
 import sliderBannerRouter from './modules/sliderbanner/sliderbanner.routes'
 import claimRouter from './modules/claim/claim.router'
+import userRouterV2 from './modules/users/users.router'
 
 import setupSwagger from './config/swagger.config'
 import collectionRouter from './modules/collection/collection.router'
@@ -60,6 +61,7 @@ setupSwagger(app)
 app.use('/api/products/v2', productRouterV2)
 app.use('/api/sales/v2', saleRouterV2)
 app.use('/api/cash/v2', cashRouter)
+app.use('/api/users/v2', userRouterV2) // Reutilizamos el router de usuarios para la versión 2, ya que no tiene cambios significativos en las rutas
 app.use('/api/reports/v2', reportRouter)
 app.use('/api/slider-banners', sliderBannerRouter)
 app.use('/api/collections', collectionRouter) // Agregado router para colecciones

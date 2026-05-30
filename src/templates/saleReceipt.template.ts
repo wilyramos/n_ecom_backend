@@ -3,7 +3,7 @@ import { IOrder } from "../models/Order";
 import { IUser } from "../models/User";
 
 const COMPANY = {
-    nombre: "neoshop",
+    nombre: "NeoShop Importaciones.",
     ruc: "1078632515",
     direccion: "Av caminos del inca 257-Surco Piso 3 - Tda 326",
     city: "Lima - Perú",

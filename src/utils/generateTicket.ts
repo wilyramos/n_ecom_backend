@@ -5,7 +5,7 @@ const COMPANY = {
     ruc: "1078632515",
     direccion: "Jr. Bernardo Ohggins 120",
     city: "Lima - Perú, Lima - Perú",
-    telefono: "925054636",
+    telefono: "902900653",
 };
 
 

@@ -7,7 +7,7 @@ const COMPANY = {
     ruc: "1078632515",
     direccion: "Av caminos del inca 257-Surco Piso 3 - Tda 326",
     city: "Lima - Perú",
-    telefono: "925054636",
+    telefono: "902900653",
     email: "ventas@neoshopimportaciones.com",
 };
 

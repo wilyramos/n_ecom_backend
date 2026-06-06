@@ -1,4 +1,4 @@
-//File: backend/src/routes/orderRouter.ts
+// File: backend/src/routes/orderRouter.ts
 
 import { Router } from 'express';
 import { body, param } from 'express-validator';
@@ -8,6 +8,18 @@ import { authenticate, isAdmin } from '../middleware/auth';
 import { OrderStatus } from '../models/Order';
 
 const router = Router();
+
+/**
+ * RUTAS PÚBLICAS / CONTROL DE RESPUESTAS CHECKOUT
+ */
+
+// Obtener orden por número correlativo string (Para Polling de Verificación del Checkout)
+// Crucial: Se coloca al inicio para evitar colisiones con el parámetro dinámico /:id de MongoId
+router.get('/number/:orderNumber',
+    param('orderNumber').notEmpty().withMessage('El número de orden es obligatorio'),
+    handleInputErrors,
+    OrderController.getOrderByOrderNumber
+);
 
 /** * RUTAS PARA CLIENTES AUTENTICADOS 
  */
@@ -54,7 +66,6 @@ router.patch('/:id/status',
     OrderController.updateOrderStatus
 );
 
-
 /** * REPORTES Y ANALÍTICA (SOLO ADMIN) 
  */
 
@@ -88,17 +99,19 @@ router.get('/reports/orders-by-city',
     OrderController.getReportOrdersByCity
 );
 
+/** * DOCUMENTOS Y COMPROBANTES PDF 
+ */
+
 router.get('/:id/pdf',
-    // authenticate, //TODO:
+    // authenticate,
     param('id').isMongoId().withMessage('ID no válido'),
     handleInputErrors,
     OrderController.generateOrderPDF
 );
 
-// Añade esta línea JUSTO DEBAJO de tu ruta de PDF anterior (rutas dinámicas)
 router.get('/:id/shipping-label',
     // authenticate,
-    // isAdmin, // Solo el admin/almacén debería imprimir etiquetas de envío
+    // isAdmin,
     param('id').isMongoId().withMessage('ID no válido'),
     handleInputErrors,
     OrderController.generateShippingLabelPDF

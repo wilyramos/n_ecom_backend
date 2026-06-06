@@ -1,57 +1,52 @@
-//File: backend/src/routes/checkoutRouter.ts
-
+// backend/src/routes/checkoutRouter.ts
 import { Router } from 'express';
 import { body } from 'express-validator';
-import {PaymentsController} from '../controllers/PaymentsController';
+import { PaymentsController } from '../controllers/PaymentsController';
 import { authenticate } from '../middleware/auth';
-
 
 const router = Router();
 
-
-// Mercadopago
+// ── MERCADO PAGO ─────────────────────────────────────────────────────────────
 router.post('/create-preference',
-    // authenticate,
     body('items').isArray().withMessage('Items must be an array'),
+    body('orderId').notEmpty().withMessage('Order ID is required'),
     PaymentsController.createPreference
 );
 
 router.post('/create-preference-orderid',
-    // authenticate,
     body('orderId').notEmpty().withMessage('Order ID is required'),
     PaymentsController.createPreferenceWithOrderId
 );
 
-// process payment mercadopago checkoutbriks
 router.post('/process-payment',
-    // authenticate,
     body('formData').notEmpty().withMessage('Form data is required'),
     PaymentsController.processPayment
 );
 
-// Yape with mercadopago
 router.post('/mercadopago/yape',
-    // authenticate,
     body('orderId').notEmpty().withMessage('Order ID is required'),
     PaymentsController.processPaymentYape
 );
 
-// api checkout mercadopago
-
+// ── IZIPAY ───────────────────────────────────────────────────────────────────
 router.post('/izipay/create-payment',
-    // authenticate,
+    body('orderId').notEmpty().withMessage('Order ID is required'),
     PaymentsController.createPaymentIzipay
 );
 
-
-
-// Culqi
-
+// ── CULQI PROCESAMIENTO DIRECTO ──────────────────────────────────────────────
 router.post('/process-payment-culqi',
-    authenticate,
-    // body('token').notEmpty().withMessage('Token is required'),
-    // body('order').notEmpty().withMessage('Order is required'),
+    // Se comenta o flexibiliza para permitir compras directas tipo 'Guest' sin token JWT mandatorio
+    // authenticate, 
+    body('amount').notEmpty().withMessage('Amount is required'),
+    body('orderId').notEmpty().withMessage('OrderId is required'),
+    body('email').isEmail().withMessage('A valid email is required'),
     PaymentsController.processPaymentCulqi
+);
+
+// ── CULQI WEBHOOK INBOUND (Registrar en el Panel) ───────────────────────────
+router.post('/webhook-culqi', 
+    PaymentsController.handleWebHookCulqi
 );
 
 export default router;

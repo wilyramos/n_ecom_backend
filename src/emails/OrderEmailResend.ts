@@ -1,3 +1,5 @@
+//File: backend/src/emails/OrderEmailResend.ts
+
 import { resend } from "../config/resend";
 import { baseEmailTemplate } from "./templates/baseEmailTemplate";
 import type { IOrderItem } from "../models/Order";

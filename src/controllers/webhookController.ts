@@ -273,9 +273,9 @@ export class WebhookController {
                     await OrderEmail.sendOrderConfirmationEmail({
                         email: recipient.email,
                         name: recipient.name,
-                        orderId: order.id,
+                        orderId: order.orderNumber,
                         totalPrice: order.totalPrice,
-                        shippingMethod: order.payment.method || "Izipay",
+                        shippingMethod: order.payment.method || "No especificado",
                         items: order.items
                     });
                 } catch (emailError) {

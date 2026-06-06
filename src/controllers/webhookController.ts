@@ -120,7 +120,7 @@ export class WebhookController {
                     await OrderEmail.sendOrderConfirmationEmail({
                         email: customer.email,
                         name: customer.nombre,
-                        orderId: order._id.toString(),
+                        orderId: order.orderNumber,
                         totalPrice: order.totalPrice,
                         shippingMethod: order.shippingAddress.direccion,
                         items: order.items,

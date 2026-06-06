@@ -1,10 +1,9 @@
-// File: backend/src/routes/orderRouter.ts
-
 import { Router } from 'express';
 import { body, param } from 'express-validator';
 import { OrderController } from '../controllers/OrderController';
 import { handleInputErrors } from '../middleware/validation';
-import { authenticate, isAdmin } from '../middleware/auth';
+// CAMBIO: Importar authenticateOptional
+import { authenticate, authenticateOptional, isAdmin } from '../middleware/auth';
 import { OrderStatus } from '../models/Order';
 
 const router = Router();
@@ -12,30 +11,27 @@ const router = Router();
 /**
  * RUTAS PÚBLICAS / CONTROL DE RESPUESTAS CHECKOUT
  */
-
-// Obtener orden por número correlativo string (Para Polling de Verificación del Checkout)
-// Crucial: Se coloca al inicio para evitar colisiones con el parámetro dinámico /:id de MongoId
 router.get('/number/:orderNumber',
     param('orderNumber').notEmpty().withMessage('El número de orden es obligatorio'),
     handleInputErrors,
     OrderController.getOrderByOrderNumber
 );
 
-/** * RUTAS PARA CLIENTES AUTENTICADOS 
+/**
+ * RUTAS PARA CLIENTES (AUTENTICADOS O INVITADOS)
  */
 
-// Crear Orden
+// CAMBIO: Inyectar el middleware opcional aquí
 router.post('/',
+    authenticateOptional,
     OrderController.createOrder
 );
 
 // Obtener mis órdenes (Historial del cliente)
-// Nota: Se coloca antes de /:id para evitar que "user" sea tomado como un ID
 router.get('/user/me',
     authenticate,
     OrderController.getOrdersByUser
 );
-
 // Obtener detalle de una orden por ID (Admin o Dueño de la orden)
 router.get('/:id',
     param('id').isMongoId().withMessage('ID no válido'),

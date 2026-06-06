@@ -58,7 +58,7 @@ export class OrderEmail {
             </p>
 
             <p style="margin-top:8px; font-size:15px;">
-              <strong>Método de envío:</strong> ${shippingMethod}
+              <strong>Direccion de envío:</strong> ${shippingMethod}
             </p>
 
             <h3 style="margin-top:20px; font-size:17px; font-weight:600;">Resumen de tu pedido</h3>
@@ -96,7 +96,7 @@ export class OrderEmail {
       await resend.emails.send({
         from: "neoshop <contacto@neoshopimportaciones.com>",
         to: email,
-        subject: "Tu pedido ha sido confirmado 🛍️",
+        subject: "Tu pedido ha sido confirmado | NEOSHOP IMPORTACIONES",
         html: emailContent,
       });
 

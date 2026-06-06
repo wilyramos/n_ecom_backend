@@ -1,4 +1,4 @@
-//File: backend/src/controllers/OrderController.ts
+// File: backend/src/controllers/OrderController.ts
 
 import Order, { OrderStatus, PaymentStatus } from '../models/Order';
 import { Request, Response } from 'express';
@@ -10,9 +10,6 @@ import { buildOrderReceipt } from '../templates/saleReceipt.template';
 import { PdfService } from '../services/pdf.service';
 import { buildShippingLabel } from '../templates/shippingLabel.template';
 
-
-
-// Definir junto al controlador o en un archivo de constantes
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
     [OrderStatus.AWAITING_PAYMENT]: [
         OrderStatus.PROCESSING,
@@ -55,10 +52,6 @@ export class OrderController {
                 shippingCost,
                 totalPrice,
                 shippingAddress,
-                paymentMethod,
-                transactionId,
-                payment,
-                rawPaymentResponse,
                 currency = 'PEN'
             } = req.body;
 
@@ -71,12 +64,6 @@ export class OrderController {
             if (!items || !Array.isArray(items) || items.length === 0) {
                 await session.abortTransaction();
                 res.status(400).json({ message: 'La orden debe tener al menos un producto' });
-                return;
-            }
-
-            if (!payment?.provider) {
-                await session.abortTransaction();
-                res.status(400).json({ message: 'Proveedor de pago requerido' });
                 return;
             }
 
@@ -101,7 +88,6 @@ export class OrderController {
                 if (!dbProduct) continue;
 
                 const variantId = normalizeVariantId(item.variantId);
-
                 let finalPrice = dbProduct.precio || 0;
                 let nombre = dbProduct.nombre;
                 let imagen: string | undefined;
@@ -111,53 +97,35 @@ export class OrderController {
                     const variant = dbProduct.variants?.find((v: any) => v._id!.toString() === variantId);
                     if (!variant) {
                         await session.abortTransaction();
-                        res.status(400).json({
-                            message: `La variante seleccionada para "${dbProduct.nombre}" no existe`
-                        });
+                        res.status(400).json({ message: `La variante seleccionada para "${dbProduct.nombre}" no existe` });
                         return;
                     }
-
                     finalPrice = variant.precio ?? dbProduct.precio ?? 0;
                     nombre = `${dbProduct.nombre} ${variant.nombre ?? ''}`.trim();
                     imagen = variant.imagenes?.[0] || dbProduct.imagenes?.[0];
-
-                    try {
-                        variantAttributes = variant.atributos
-                            ? JSON.parse(JSON.stringify(variant.atributos))
-                            : {};
-                    } catch {
-                        variantAttributes = {};
-                    }
+                    variantAttributes = variant.atributos ? JSON.parse(JSON.stringify(variant.atributos)) : {};
 
                     if ((variant.stock ?? 0) < item.quantity) {
                         await session.abortTransaction();
-                        res.status(400).json({
-                            message: `Stock insuficiente para "${nombre}". Disponible: ${variant.stock}`
-                        });
+                        res.status(400).json({ message: `Stock insuficiente para "${nombre}".` });
                         return;
                     }
                 } else {
                     imagen = dbProduct.imagenes?.[0];
-
                     if ((dbProduct.stock ?? 0) < item.quantity) {
                         await session.abortTransaction();
-                        res.status(400).json({
-                            message: `Stock insuficiente para "${nombre}". Disponible: ${dbProduct.stock}`
-                        });
+                        res.status(400).json({ message: `Stock insuficiente para "${nombre}".` });
                         return;
                     }
                 }
 
                 if (item.price !== finalPrice) {
                     await session.abortTransaction();
-                    res.status(400).json({
-                        message: `El precio de "${nombre}" ha cambiado. Por favor recarga la página.`
-                    });
+                    res.status(400).json({ message: `El precio de "${nombre}" ha cambiado.` });
                     return;
                 }
 
                 calculatedSubtotal += finalPrice * item.quantity;
-
                 orderItems.push({
                     productId: dbProduct._id,
                     variantId: variantId ?? undefined,
@@ -169,91 +137,60 @@ export class OrderController {
                 });
             }
 
-            if (calculatedSubtotal !== subtotal) {
+            if (calculatedSubtotal !== subtotal || subtotal + shippingCost !== totalPrice) {
                 await session.abortTransaction();
-                res.status(400).json({ message: 'El subtotal no coincide' });
+                res.status(400).json({ message: 'Los montos calculados no coinciden' });
                 return;
             }
 
-            if (subtotal + shippingCost !== totalPrice) {
-                await session.abortTransaction();
-                res.status(400).json({ message: 'El total no coincide' });
-                return;
-            }
+            const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
-            const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            // ─── COMUNICACIÓN CON CULQI ORDERS API ───────────────────────────
+            const amountInCents = Math.round(totalPrice * 100);
+            const expirationTimestamp = Math.floor(Date.now() / 1000) + (24 * 60 * 60); // 24 horas
 
-            // ── Culqi Orders API ──────────────────────────────────────────────────
-            let culqiOrderId: string | undefined;
-            let culqiOrderNumber: string | undefined;
-            let culqiPaymentCode: string | undefined;
-            let culqiOrderState: string | undefined;
-            let culqiExpiration: number | undefined;
-            let culqiRawResponse: unknown;
+            let culqiOrderId: string | undefined = undefined;
 
-            if (payment.provider === 'culqi') {
-                const amountInCents = Math.round(totalPrice * 100);
-                // Asegurar que la expiración sea de mínimo 24 horas exactas hacia el futuro
-                const expirationDate = Math.floor(Date.now() / 1000) + (24 * 60 * 60);
-
-                try {
-                    const culqiResponse = await fetch('https://api.culqi.com/v2/orders', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${process.env.CULQI_API_KEY}`,
-                            'Content-Type': 'application/json',
+            try {
+                const culqiResponse = await fetch("https://api.culqi.com/v2/orders", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${process.env.CULQI_API_KEY}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        amount: amountInCents,
+                        currency_code: currency.toUpperCase().trim(),
+                        description: `Cargo por orden comercial ${orderNumber}`,
+                        order_number: orderNumber,
+                        expiration_date: expirationTimestamp,
+                        client_details: {
+                            first_name: customerProfile.nombre,
+                            last_name: customerProfile.apellidos,
+                            email: customerProfile.email,
+                            phone_number: customerProfile.telefono
                         },
-                        body: JSON.stringify({
-                            amount: amountInCents,
-                            currency_code: String(currency).toUpperCase().trim(),
-                            description: `NEOSHOP Compra - Pedido ${orderNumber}`,
-                            order_number: orderNumber,
-                            expiration_date: expirationDate,
-                            client_details: {
-                                first_name: customerProfile.nombre,
-                                last_name: customerProfile.apellidos,
-                                email: customerProfile.email.toLowerCase().trim(),
-                                phone_number: customerProfile.telefono,
-                            },
-                            // Parámetros obligatorios para la prevención de fraudes 3DS de Culqi
-                            antifraud_details: {
-                                address: shippingAddress.direccion,
-                                address_city: shippingAddress.distrito,
-                                country_code: "PE",
-                                first_name: customerProfile.nombre,
-                                last_name: customerProfile.apellidos,
-                                phone_number: customerProfile.telefono
-                            },
-                            metadata: {
-                                order_number: orderNumber,
-                            },
-                        }),
-                    });
+                        confirm: false
+                    })
+                });
 
-                    const culqiData = await culqiResponse.json() as Record<string, any>;
-                    culqiRawResponse = culqiData;
+                const culqiOrderData = (await culqiResponse.json()) as { id?: string; object?: string;[key: string]: unknown };
 
-                    if (culqiResponse.ok && typeof culqiData.id === 'string') {
-                        culqiOrderId = culqiData.id;
-                        culqiOrderNumber = typeof culqiData.order_number === 'string' ? culqiData.order_number : orderNumber;
-                        culqiPaymentCode = typeof culqiData.payment_code === 'string' ? culqiData.payment_code : undefined;
-                        culqiOrderState = typeof culqiData.state === 'string' ? culqiData.state : 'pending';
-                        culqiExpiration = typeof culqiData.expiration_date === 'number' ? culqiData.expiration_date : expirationDate;
-
-                        console.log(`✅ [Express API] Culqi orden creada exitosamente: ${culqiOrderId} en estado: ${culqiOrderState}`);
-                    } else {
-                        console.error('⚠️ [Express API] Culqi denegó los parámetros estructurados enviados:', culqiData);
-                    }
-
-                } catch (networkError) {
-                    console.error('❌ [Express API] Error crítico de comunicación con Culqi API:', networkError);
+                if (culqiResponse.ok && culqiOrderData.id) {
+                    culqiOrderId = culqiOrderData.id;
+                    console.log(`🌐 [Culqi Orders] Orden generada exitosamente: ${culqiOrderId}`);
+                } else {
+                    console.error("⚠️ La API de Culqi denegó la creación de la orden:", culqiOrderData);
                 }
+            } catch (error) {
+                console.error("❌ Error de red / Timeout al comunicar con Culqi Orders API:", error);
             }
 
-            // ── Persistencia MongoDB ──────────────────────────────────────────────
+            // ─── PERSISTENCIA FINAL EN BASE DE DATOS ─────────────────────────
             const newOrder = await Order.create([{
                 orderNumber,
-                user: req.user ? req.user._id : undefined,
+                // Si req.user fue inyectado por el middleware opcional, extrae su _id; si no, guarda null de forma explícita
+                user: req.user ? new mongoose.Types.ObjectId(req.user._id as string) : null,
                 customerProfile,
                 items: orderItems,
                 subtotal,
@@ -264,39 +201,32 @@ export class OrderController {
                 statusHistory: [{ status: OrderStatus.AWAITING_PAYMENT, changedAt: new Date() }],
                 shippingAddress,
                 payment: {
-                    provider: payment.provider,
-                    method: paymentMethod,
-                    transactionId,
-                    status: payment.status || PaymentStatus.PENDING,
-                    rawResponse: culqiRawResponse ?? rawPaymentResponse,
-                    ...(payment.provider === 'culqi' && {
-                        culqiOrderId,
-                        culqiOrderNumber,
-                        culqiPaymentCode,
-                        culqiOrderState,
-                        culqiExpirationDate: culqiExpiration,
-                    }),
+                    provider: 'culqi',
+                    status: PaymentStatus.PENDING,
+                    culqiOrderId: culqiOrderId,
+                    culqiOrderNumber: orderNumber,
+                    culqiOrderState: culqiOrderId ? 'pending' : undefined,
+                    culqiExpirationDate: culqiOrderId ? expirationTimestamp : undefined
                 }
             }], { session });
 
             await session.commitTransaction();
 
             res.status(201).json({
-                message: 'Orden creada exitosamente',
-                order: newOrder[0],
-                ...(culqiOrderId && { culqiOrderId }),
+                message: 'Orden registrada localmente con éxito',
+                order: newOrder[0]
             });
 
         } catch (error) {
             await session.abortTransaction();
-            console.error('Error al crear la orden:', error);
-            res.status(500).json({ message: 'Error al crear la orden' });
+            console.error('Error al crear la orden local:', error);
+            res.status(500).json({ message: 'Error al procesar la orden' });
         } finally {
             session.endSession();
         }
     }
 
-    // Trear todas las orders para el administrador
+
     static async getOrders(req: Request, res: Response) {
         try {
             const page = parseInt(req.query.page as string) || 1;
@@ -317,12 +247,10 @@ export class OrderController {
             const skip = (page - 1) * limit;
             const searchConditions: any = {};
 
-            // Filtro por número de pedido
             if (pedido?.trim()) {
                 searchConditions.orderNumber = { $regex: pedido, $options: "i" };
             }
 
-            // Filtro por rango de fechas
             if (fecha) {
                 const startDate = new Date(fecha);
                 const endDate = new Date(fechaFin || fecha);
@@ -330,17 +258,14 @@ export class OrderController {
                 searchConditions.createdAt = { $gte: startDate, $lte: endDate };
             }
 
-            // Filtro por estado de pago
             if (estadoPago) {
                 searchConditions['payment.status'] = estadoPago;
             }
 
-            // Filtro por estado de envío
             if (estadoEnvio) {
                 searchConditions.status = estadoEnvio;
             }
 
-            // Filtro por rango de monto
             if (montoMin || montoMax) {
                 searchConditions.totalPrice = {};
                 if (montoMin) {
@@ -354,9 +279,7 @@ export class OrderController {
             const orders = await Order.find(searchConditions)
                 .sort({ createdAt: -1 })
                 .skip(skip)
-                .limit(limit)
-            // .populate('user', 'nombre email')
-            // .populate('items.productId', 'nombre');
+                .limit(limit);
 
             const totalOrders = await Order.countDocuments(searchConditions);
 
@@ -372,26 +295,29 @@ export class OrderController {
             res.status(500).json({ message: 'Error al obtener las órdenes' });
         }
     }
+
     static async getOrdersByUser(req: Request, res: Response) {
         try {
-
             const page = parseInt(req.query.page as string) || 1;
             let limit = parseInt(req.query.limit as string) || 5;
             const userId = req.user._id;
 
             const skip = (page - 1) * limit;
 
-            // Limitar a maximo 50
             if (limit > 50) {
                 limit = 50;
             }
 
             const orders = await Order.find({ user: userId })
-                .sort({ createdAt: -1 }) // Ordenar por fecha de creación
+                .sort({ createdAt: -1 })
                 .skip(skip)
-                .limit(limit)
+                .limit(limit);
+
+            console.log(`🔍 Consultando órdenes para  ${orders}`, orders);
 
             const totalOrders = await Order.countDocuments({ user: userId });
+
+            console.log(`📦 Usuario ${userId} ha consultado sus órdenes. Página: ${page}, Límite: ${limit}, Total Órdenes: ${totalOrders}`);
 
             res.status(200).json({
                 orders,
@@ -400,36 +326,23 @@ export class OrderController {
                 totalPages: Math.ceil(totalOrders / limit),
             });
         } catch (error) {
-            // console.error(error);
             res.status(500).json({ message: 'Error al obtener las órdenes del usuario' });
-            return;
         }
     }
 
     static async getOrderById(req: Request, res: Response) {
         try {
             const { id } = req.params;
-            // const userId = req.user._id;
-            // const rol = req.user.rol;
-
-            const order = await Order.findById(id)
-                .populate('user', 'nombre apellidos email') // Populate el usuario si es necesario
+            const order = await Order.findById(id).populate('user', 'nombre apellidos email');
 
             if (!order) {
                 res.status(404).json({ message: 'Orden no encontrada' });
                 return;
             }
 
-            // if (rol !== 'administrador' && order.user._id.toString() !== userId.toString()) {
-            //     res.status(403).json({ message: 'No tienes permiso para acceder a esta orden' });
-            //     return;
-            // }
-
             res.status(200).json(order);
         } catch (error) {
-            // console.error(error);
             res.status(500).json({ message: 'Error al obtener la orden' });
-            return;
         }
     }
 
@@ -437,16 +350,14 @@ export class OrderController {
         try {
             const { userId, items, totalPrice, shippingAddress, paymentMethod, paymentStatus, trackingId } = req.body;
 
-            // Validar que los datos necesarios estén presentes
             if (!userId || !items || !totalPrice || !shippingAddress || !paymentMethod || !paymentStatus) {
                 res.status(400).json({ message: 'Datos incompletos para crear la orden' });
                 return;
             }
 
             const totalOrders = await Order.countDocuments();
-            const orderNumber = `ORD-${totalOrders + 1}`; // Generar un número de orden único
+            const orderNumber = `ORD-${totalOrders + 1}`;
 
-            // Crear la orden
             const newOrder = new Order({
                 orderNumber,
                 user: userId,
@@ -459,16 +370,12 @@ export class OrderController {
             });
 
             await newOrder.save();
-
             res.status(201).json({ message: 'Orden creada exitosamente', order: newOrder });
 
         } catch (error) {
             console.error('❌ Error al guardar orden desde webhook:', error);
         }
     }
-
-    // *** REPORTS ***
-
 
     static async getSummaryOrders(req: Request, res: Response) {
         try {
@@ -486,7 +393,6 @@ export class OrderController {
                 createdAt: { $gte: startDate, $lte: endDate }
             }).populate("items.productId");
 
-            // Inicializar métricas
             let grossSales = 0;
             let netSales = 0;
             let numberOrdersPagadas = 0;
@@ -537,12 +443,9 @@ export class OrderController {
             };
 
             res.json(summary);
-            return;
-
         } catch (error) {
             console.error("Error en getSummaryOrders:", error);
             res.status(500).json({ message: "Error al obtener resumen de órdenes" });
-            return;
         }
     }
 
@@ -555,7 +458,6 @@ export class OrderController {
                 return;
             }
 
-            // Buscar la orden por coincidencia exacta de número de pedido
             const order = await Order.findOne({ orderNumber });
 
             if (!order) {
@@ -563,18 +465,14 @@ export class OrderController {
                 return;
             }
 
-            // Responder estructurado bajo el objeto 'order' para el mapeo directo en el frontend
             res.status(200).json({ order });
-            return;
         } catch (error) {
             console.error('❌ Error interno en getOrderByOrderNumber:', error);
             res.status(500).json({ message: 'Error interno del servidor al consultar el estado del pedido.' });
-            return;
         }
     }
 
     static async getOrdersOverTime(req: Request, res: Response) {
-
         try {
             const { fechaInicio, fechaFin } = req.query;
 
@@ -585,7 +483,7 @@ export class OrderController {
 
             const startDate = startOfDay(parseISO(fechaInicio));
             const endDate = endOfDay(parseISO(fechaFin));
-            const dateFormat = "%Y-%m-%d"; // Formato de fecha para agrupar por día
+            const dateFormat = "%Y-%m-%d";
 
             const report = await Order.aggregate([
                 {
@@ -598,7 +496,6 @@ export class OrderController {
                     $group: {
                         _id: {
                             $dateToString: { format: dateFormat, date: "$createdAt" }
-
                         },
                         totalSales: { $sum: "$totalPrice" },
                         numberOfOrders: { $sum: 1 },
@@ -616,11 +513,9 @@ export class OrderController {
             ]);
 
             res.json(report);
-            return
         } catch (error) {
             console.error("Error en getOrdersOverTime:", error);
             res.status(500).json({ message: "Error al obtener órdenes por tiempo" });
-            return;
         }
     }
 
@@ -659,11 +554,9 @@ export class OrderController {
             ]);
 
             res.json(report);
-            return
         } catch (error) {
             console.error("Error en getReportOrdersByStatus:", error);
             res.status(500).json({ message: "Error al obtener reporte de órdenes por estado" });
-            return;
         }
     }
 
@@ -704,11 +597,9 @@ export class OrderController {
             ]);
 
             res.json(report);
-            return
         } catch (error) {
             console.error("Error en getReportOrdersByMethodPayment:", error);
             res.status(500).json({ message: "Error al obtener reporte de órdenes por método de pago" });
-            return;
         }
     }
 
@@ -749,15 +640,11 @@ export class OrderController {
             ]);
 
             res.json(report);
-            return
         } catch (error) {
             console.error("Error en getReportOrdersByCity:", error);
             res.status(500).json({ message: "Error al obtener reporte de órdenes por ciudad" });
-            return;
         }
     }
-
-
 
     static async updateOrderStatus(req: Request, res: Response) {
         const session = await mongoose.startSession();
@@ -784,19 +671,11 @@ export class OrderController {
                 return;
             }
 
-            // CASO A: Cancelación — restaurar stock si ya fue descontado
             if (newStatus === OrderStatus.CANCELED && STATUSES_WITH_DEDUCTED_STOCK.includes(currentStatus)) {
                 console.log(`[Stock] Restaurando inventario para orden: ${order.orderNumber}`);
                 await OrderService.adjustStock(order.items, 'restore', session);
             }
 
-            // CASO B: ELIMINADO — createOrder ya descuenta stock al crear la orden
-            // AWAITING_PAYMENT → PROCESSING no requiere ajuste de stock adicional
-
-            // CASO C: PAID_BUT_OUT_OF_STOCK → PROCESSING
-            // El admin repuso inventario manualmente en DB, ahora confirma la orden
-            // Solo descontar si el stock fue previamente restaurado al entrar en este estado
-            // (depende de tu flujo de webhook — ver nota abajo)
             if (currentStatus === OrderStatus.PAID_BUT_OUT_OF_STOCK && newStatus === OrderStatus.PROCESSING) {
                 console.log(`[Stock] Descontando stock tras reposición: ${order.orderNumber}`);
                 await OrderService.adjustStock(order.items, 'deduct', session);
@@ -831,8 +710,6 @@ export class OrderController {
     static async generateOrderPDF(req: Request, res: Response) {
         try {
             const { id } = req.params;
-
-            // 1. Buscamos la orden y populamos el usuario para tener su nombre y correo
             const order = await Order.findById(id).populate('user', 'nombre apellidos email');
 
             if (!order) {
@@ -840,36 +717,22 @@ export class OrderController {
                 return;
             }
 
-            // (Opcional) Seguridad: Verificar que el usuario que lo solicita es dueño de la orden o es admin
-            // Si req.user existe, descomenta esto:
-            // if (req.user.rol !== 'administrador' && order.user._id.toString() !== req.user._id.toString()) {
-            //     res.status(403).json({ message: 'No autorizado' });
-            //     return;
-            // }
-
-            // 2. Ruta de tu logo (Opcional, ajusta la ruta según tu servidor)
-            // const logoPath = path.resolve(__dirname, '../../public/logo.png');
             const path = require('path');
             const logoPath = path.join(process.cwd(), 'public', 'logocompleto.png');
 
-            // 3. Usamos nuestro servicio genérico pasándole el template y los datos
             const pdfBuffer = await PdfService.generateBuffer(
                 (doc, data) => buildOrderReceipt(doc, data, logoPath),
                 order
             );
 
-            // 4. Devolver el archivo binario al cliente con los headers correctos
             res.setHeader("Content-Type", "application/pdf");
             res.setHeader("Content-Disposition", `inline; filename="Orden-${order.orderNumber}.pdf"`);
             res.setHeader("Content-Length", pdfBuffer.length);
 
             res.end(pdfBuffer);
-            return;
-
         } catch (error) {
             console.error("Error en generateOrderPDF:", error);
             res.status(500).json({ message: "Error interno al generar el PDF de la orden" });
-            return;
         }
     }
 
@@ -883,12 +746,10 @@ export class OrderController {
                 return;
             }
 
-            // Generamos el PDF indicando el tamaño exacto de etiqueta térmica 4x6 pulgadas
-            // (72 puntos por pulgada -> 4 * 72 = 288, 6 * 72 = 432)
             const pdfBuffer = await PdfService.generateBuffer(
                 buildShippingLabel,
                 order,
-                { size: [288, 432], margin: 0 } // Quitamos el margen global para manejarlo en el template
+                { size: [288, 432], margin: 0 }
             );
 
             res.setHeader("Content-Type", "application/pdf");
@@ -901,5 +762,4 @@ export class OrderController {
             res.status(500).json({ message: "Error interno al generar etiqueta" });
         }
     }
-
 }

@@ -15,6 +15,7 @@ import webhookRouter from './routes/webhookRouter'
 import userRouter from './routes/userRouter'
 import purchaseRouter from './routes/purchaseRouter'
 import brandRouter from './routes/brandRouter'
+import sectionRouter from './modules/section/section.router'
 
 //Cors
 import cors from 'cors'
@@ -66,6 +67,7 @@ app.use('/api/reports/v2', reportRouter)
 app.use('/api/slider-banners', sliderBannerRouter)
 app.use('/api/collections', collectionRouter) // Agregado router para colecciones
 app.use('/api/claims', claimRouter)
+app.use('/api/sections', sectionRouter)
 
 // Routers
 app.use('/api/auth', authRouter)

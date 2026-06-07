@@ -6,7 +6,7 @@ const sectionService = new SectionService();
 
 export class SectionController {
     /**
-     * Centraliza las respuestas de error capturando instancias de AppError
+     * 
      */
     private handleError(res: Response, error: unknown, defaultMessage: string): void {
         if (error instanceof AppError) {

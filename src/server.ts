@@ -16,6 +16,7 @@ import userRouter from './routes/userRouter'
 import purchaseRouter from './routes/purchaseRouter'
 import brandRouter from './routes/brandRouter'
 import sectionRouter from './modules/section/section.router'
+import advertisementRouter from './modules/advertisement/advertisement.routes'
 
 //Cors
 import cors from 'cors'
@@ -68,6 +69,7 @@ app.use('/api/slider-banners', sliderBannerRouter)
 app.use('/api/collections', collectionRouter) // Agregado router para colecciones
 app.use('/api/claims', claimRouter)
 app.use('/api/sections', sectionRouter)
+app.use('/api/advertisements', advertisementRouter) // Agregado router para avisos publicitarios
 
 // Routers
 app.use('/api/auth', authRouter)

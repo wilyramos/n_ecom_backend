@@ -253,8 +253,11 @@ export class OrderController {
 
             if (fecha) {
                 const startDate = new Date(fecha);
+                startDate.setUTCHours(0, 0, 0, 0); // Inicio del día UTC
+
                 const endDate = new Date(fechaFin || fecha);
-                endDate.setHours(23, 59, 59, 999);
+                endDate.setUTCHours(23, 59, 59, 999); // Fin del día UTC
+
                 searchConditions.createdAt = { $gte: startDate, $lte: endDate };
             }
 
@@ -565,7 +568,50 @@ export class OrderController {
             const { fechaInicio, fechaFin } = req.query;
 
             if (!fechaInicio || !fechaFin || typeof fechaInicio !== "string" || typeof fechaFin !== "string") {
-                res.status(400).json({ message: "Debe proporcionar fechaInicio y fechaFin válidas" });
+                res.status(400).json({ message: "Debe proporcionar fechas válidas" });
+                return;
+            }
+
+            const startDate = startOfDay(parseISO(fechaInicio));
+            const endDate = endOfDay(parseISO(fechaFin));
+
+            const report = await Order.aggregate([
+                {
+                    $match: {
+                        createdAt: { $gte: startDate, $lte: endDate },
+                        "payment.status": PaymentStatus.APPROVED // Solo consideramos ventas reales
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$payment.provider", // O "$payment.method" según cómo lo guardes
+                        numberOfOrders: { $sum: 1 },
+                        totalSales: { $sum: "$totalPrice" },
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        provider: "$_id",
+                        numberOfOrders: 1,
+                        totalSales: 1
+                    }
+                }
+            ]);
+
+            res.json(report);
+        } catch (error) {
+            console.error("Error en getReportOrdersByMethodPayment:", error);
+            res.status(500).json({ message: "Error al generar reporte de pagos" });
+        }
+    }
+
+    static async getReportOrdersByPaymentStatus(req: Request, res: Response) {
+        try {
+            const { fechaInicio, fechaFin } = req.query;
+
+            if (!fechaInicio || !fechaFin || typeof fechaInicio !== "string" || typeof fechaFin !== "string") {
+                res.status(400).json({ message: "Fechas inválidas" });
                 return;
             }
 
@@ -580,26 +626,24 @@ export class OrderController {
                 },
                 {
                     $group: {
-                        _id: "$payment.method",
-                        numberOfOrders: { $sum: 1 },
-                        totalSales: { $sum: "$totalPrice" },
+                        _id: "$payment.status", // Agrupa por el enum de PaymentStatus
+                        numberOfOrders: { $sum: 1 }
                     }
                 },
                 {
                     $project: {
                         _id: 0,
-                        method: "$_id",
-                        numberOfOrders: 1,
-                        totalSales: 1
+                        status: "$_id", // Mapea a 'status' para que coincida con tu esquema
+                        numberOfOrders: 1
                     }
                 },
-                { $sort: { method: 1 } }
+                { $sort: { status: 1 } }
             ]);
 
             res.json(report);
         } catch (error) {
-            console.error("Error en getReportOrdersByMethodPayment:", error);
-            res.status(500).json({ message: "Error al obtener reporte de órdenes por método de pago" });
+            console.error("Error en getReportOrdersByPaymentStatus:", error);
+            res.status(500).json({ message: "Error al generar reporte de estado de pago" });
         }
     }
 
@@ -762,4 +806,6 @@ export class OrderController {
             res.status(500).json({ message: "Error interno al generar etiqueta" });
         }
     }
+
+
 }

@@ -89,6 +89,14 @@ router.get('/reports/orders-by-payment-method',
     OrderController.getReportOrdersByMethodPayment
 );
 
+router.get('/reports/payment-status', authenticate, isAdmin, OrderController.getReportOrdersByPaymentStatus);
+
+router.get('/reports/orders-by-payment-method',
+    authenticate,
+    isAdmin,
+    OrderController.getReportOrdersByMethodPayment
+);
+
 router.get('/reports/orders-by-city',
     authenticate,
     isAdmin,

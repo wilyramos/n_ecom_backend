@@ -19,10 +19,10 @@ const COLORS = {
     surface: "#F3F4F6", // Ligeramente más oscuro para contraste
 };
 
-const formatCurrency = (value: number, currency: string = "PEN") => 
+const formatCurrency = (value: number, currency: string = "PEN") =>
     `${currency === "PEN" ? "S/" : "$"} ${value.toFixed(2)}`;
 
-const formatDate = (date?: Date | string) => 
+const formatDate = (date?: Date | string) =>
     new Date(date || Date.now()).toLocaleDateString('es-PE', { year: 'numeric', month: 'short', day: 'numeric' });
 
 export const buildOrderReceipt = (doc: PDFKit.PDFDocument, order: IOrder, logoPath?: string) => {
@@ -33,16 +33,19 @@ export const buildOrderReceipt = (doc: PDFKit.PDFDocument, order: IOrder, logoPa
         try { doc.image(logoPath, 50, currentY, { width: 80 }); } catch (e) { }
     }
 
-    doc.font("Helvetica-Bold").fontSize(18).fillColor(COLORS.primary).text(COMPANY.nombre.toUpperCase(), 140, currentY);
     doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary)
         .text(`RUC: ${COMPANY.ruc}`, 140, currentY + 22)
         .text(COMPANY.direccion, 140, currentY + 34)
         .text(COMPANY.email, 140, currentY + 46);
 
     doc.font("Helvetica-Bold").fontSize(16).fillColor(COLORS.primary).text("ORDEN", 400, currentY, { align: "right" });
-    doc.font("Helvetica").fontSize(10).fillColor(COLORS.secondary)
-        .text(`N° ${order.orderNumber}`, 400, currentY + 20, { align: "right" })
-        .text(formatDate(order.createdAt), 400, currentY + 35, { align: "right" });
+    // Número de orden más pequeño y ligero
+    doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary)
+        .text(`N° ${order.orderNumber}`, 400, currentY + 20, { align: "right", width: 150 });
+
+    // Fecha alineada justo debajo
+    doc.font("Helvetica").fontSize(9).fillColor(COLORS.secondary)
+        .text(formatDate(order.createdAt), 400, currentY + 32, { align: "right", width: 150 });
 
     currentY += 80;
     doc.strokeColor(COLORS.border).lineWidth(0.5).moveTo(50, currentY).lineTo(550, currentY).stroke();
@@ -50,9 +53,9 @@ export const buildOrderReceipt = (doc: PDFKit.PDFDocument, order: IOrder, logoPa
 
     // Info Cliente
     const user = order.user as unknown as IUser;
-    doc.fontSize(8).fillColor(COLORS.muted).text("PARA:", 50, currentY);
+    doc.fontSize(8).fillColor(COLORS.muted).text("Cliente:", 50, currentY);
     doc.font("Helvetica-Bold").fontSize(10).fillColor(COLORS.primary).text(user?.nombre || "Cliente", 50, currentY + 12);
-    
+
     doc.fontSize(8).fillColor(COLORS.muted).text("ENVÍO:", 320, currentY);
     doc.font("Helvetica").fontSize(9).fillColor(COLORS.secondary)
         .text(order.shippingAddress.direccion, 320, currentY + 12, { width: 200 })

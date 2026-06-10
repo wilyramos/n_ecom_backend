@@ -54,36 +54,22 @@ export interface IOrderItem {
 export interface IPaymentInfo {
     provider: string;
     method?: string;
-    /**
-     * ID del cargo (cge_live_xxx) para pagos con tarjeta directa.
-     * Para órdenes Culqi usa culqiOrderId.
-     */
     transactionId?: string;
     status: PaymentStatus;
     rawResponse?: any;
 
     // ── Culqi Orden ──────────────────────────────────────────────────────────
-    /** ID único de la orden en Culqi: "ord_live_xxxxxxxxxxx" */
     culqiOrderId?: string;
-    /**
-     * Tu order_number enviado a Culqi.
-     * Facilita la conciliación contable en el CulqiPanel.
-     */
     culqiOrderNumber?: string;
-    /**
-     * Código CIP generado por PagoEfectivo.
-     * Debe mostrársele al cliente para pagar en agentes / bancos.
-     */
     culqiPaymentCode?: string;
-    /**
-     * Estado de la orden en Culqi: "pending" | "paid" | "expired" | "deleted".
-     * Es independiente del OrderStatus interno.
-     */
     culqiOrderState?: string;
-    /** Unix timestamp de expiración de la orden (enviado al crear la orden). */
     culqiExpirationDate?: number;
-    /** Unix timestamp en que Culqi confirmó el pago (campo paid_at del webhook). */
     culqiPaidAt?: number;
+
+    // ── MercadoPago ──────────────────────────────────────────────────────────
+    mpPreferenceId?: string;      // ID de preferencia generado (pref_xxx)
+    mpMerchantOrderId?: string;   // ID de la orden comercial de MP
+    mpPaymentStatusDetail?: string; // Detalle del estado (accredited, cc_rejected_high_risk, etc.)
 }
 
 export interface IStatusHistory {
@@ -153,6 +139,11 @@ const paymentSchema = new Schema<IPaymentInfo>({
     culqiOrderState: { type: String },
     culqiExpirationDate: { type: Number },
     culqiPaidAt: { type: Number },
+
+    // MercadoPago
+    mpPreferenceId: { type: String },
+    mpMerchantOrderId: { type: String },
+    mpPaymentStatusDetail: { type: String },
 }, { _id: false });
 
 const statusHistorySchema = new Schema<IStatusHistory>({
@@ -184,7 +175,7 @@ orderSchema.index({ status: 1 });
 orderSchema.index({ 'payment.transactionId': 1 });
 orderSchema.index({ 'payment.culqiOrderId': 1 });   // búsqueda por orden Culqi
 orderSchema.index({ 'payment.culqiPaymentCode': 1 }); // búsqueda por código CIP
-
+orderSchema.index({ 'payment.mpPreferenceId': 1 });
 // ─── Model ────────────────────────────────────────────────────────────────────
 
 const Order = mongoose.model<IOrder>('Order', orderSchema);

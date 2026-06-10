@@ -123,8 +123,6 @@ export class ProductService {
             .populate('brand', 'nombre')
             .lean();
         
-        console.log("Productos encontrados por IDs: ", products);
-
         return products;
     }
 

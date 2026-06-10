@@ -128,7 +128,6 @@ export class MercadoPagoController {
 
             const cleanFrontendUrl = frontendUrl.replace(/\/$/, '');
             const cleanBackendUrl = backendUrl.replace(/\/$/, '');
-
             // Validar si es local para apagar dinámicamente auto_return y evitar errores 400 de MP
             const isLocalhost = cleanFrontendUrl.includes('localhost') || cleanFrontendUrl.includes('127.0.0.1');
 

@@ -165,9 +165,9 @@ export class MercadoPagoController {
                     },
                 },
                 back_urls: {
-                    success: `${cleanFrontendUrl}/checkout/resultado?status=success&orderId=${order._id.toString()}`,
-                    failure: `${cleanFrontendUrl}/checkout/resultado?status=failure&orderId=${order._id.toString()}`,
-                    pending: `${cleanFrontendUrl}/checkout/resultado?status=pending&orderId=${order._id.toString()}`,
+                    success: `${cleanFrontendUrl}/checkout-result/resultado?status=success&orderId=${order._id.toString()}`,
+                    failure: `${cleanFrontendUrl}/checkout-result/resultado?status=failure&orderId=${order._id.toString()}`,
+                    pending: `${cleanFrontendUrl}/checkout-result/resultado?status=pending&orderId=${order._id.toString()}`,
                 },
                 auto_return: isLocalhost ? undefined : 'approved',   
                 notification_url: `${cleanBackendUrl}/api/checkout/webhook-mp`,

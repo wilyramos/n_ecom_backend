@@ -17,7 +17,7 @@ import purchaseRouter from './routes/purchaseRouter'
 import brandRouter from './routes/brandRouter'
 import sectionRouter from './modules/section/section.router'
 import advertisementRouter from './modules/advertisement/advertisement.routes'
-//Cors
+//Cor
 import cors from 'cors'
 import { globalErrorHandler } from './middleware/error.middleware'
 import lineRouter from './routes/line.router'

@@ -29,6 +29,7 @@ router.post('/webhook-culqi',
 
 /**
  * Crea una preferencia de pago en MercadoPago.
+ * 
  * El frontend llama a este endpoint y recibe el init_point para redirigir al usuario.
  */
 router.post('/create-preference-mp',

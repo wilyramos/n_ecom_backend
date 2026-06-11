@@ -1,4 +1,4 @@
-//File: backend/src/modules/section/section.model.ts
+// File: backend/src/modules/section/section.model.ts
 
 import { Schema, model, Document, Types } from 'mongoose';
 
@@ -41,13 +41,21 @@ const SectionSchema = new Schema<ISection>({
         bodyText: { type: String },
         gridColumns: { type: Number, default: 4 }
     },
-    blocks: [{
-        title: { type: String, trim: true },
-        subtitle: { type: String, trim: true },
-        imageUrl: { type: String },
-        linkTo: { type: String },
-        productId: { type: Schema.Types.ObjectId, ref: 'Product' }
-    }]
+    blocks: {
+        type: [{
+            title: { type: String, trim: true },
+            subtitle: { type: String, trim: true },
+            imageUrl: { type: String },
+            linkTo: { type: String },
+            productId: { type: Schema.Types.ObjectId, ref: 'Product' }
+        }],
+        validate: {
+            validator: function (val: ISectionBlock[]) {
+                return val.length <= 8;
+            },
+            message: 'La sección estructural excede el límite máximo de 8 bloques de contenido.'
+        }
+    }
 }, { timestamps: true });
 
 // Índice compuesto para optimizar las consultas del Home de manera instantánea

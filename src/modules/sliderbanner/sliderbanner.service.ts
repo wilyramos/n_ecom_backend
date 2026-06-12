@@ -42,21 +42,18 @@ export class SliderBannerService {
     }
 
     private validate(data: Partial<ISliderBanner>, isUpdate = false): void {
-        // Precio: compare debe ser mayor que current
         if (data.price?.current !== undefined && data.price?.compare !== undefined) {
             if (data.price.compare <= data.price.current) {
                 throw new AppError('El precio de comparación debe ser mayor al precio actual', 400);
             }
         }
 
-        // Schedule: endsAt debe ser posterior a startsAt
         if (data.schedule?.startsAt && data.schedule?.endsAt) {
             if (new Date(data.schedule.endsAt) <= new Date(data.schedule.startsAt)) {
                 throw new AppError('La fecha de fin debe ser posterior a la de inicio', 400);
             }
         }
 
-        // Countdown: endsAt debe ser una fecha futura (solo se valida al crear para no bloquear updates de banners expirados)
         if (!isUpdate && data.countdown?.endsAt) {
             if (new Date(data.countdown.endsAt) <= new Date()) {
                 throw new AppError('La fecha del countdown debe ser futura', 400);
@@ -64,10 +61,6 @@ export class SliderBannerService {
         }
     }
 
-    /**
-     * Elimina recursivamente las claves con valor undefined
-     * para evitar sobreescrituras accidentales en updates parciales.
-     */
     private sanitize(data: Record<string, any>): Record<string, any> {
         const clean: Record<string, any> = {};
 
@@ -90,9 +83,6 @@ export class SliderBannerService {
         return clean;
     }
 
-    /**
-     * Filtra banners fuera de su ventana de programación.
-     */
     private scheduleFilter(): FilterQuery<ISliderBanner> {
         const now = new Date();
         return {
@@ -138,10 +128,9 @@ export class SliderBannerService {
         if (search?.trim()) {
             const regex = { $regex: search.trim(), $options: 'i' };
             filter.$or = [
-                { name: regex },
                 { title: regex },
                 { subtitle: regex },
-                { tags: regex },
+                { description: regex },
             ];
         }
 

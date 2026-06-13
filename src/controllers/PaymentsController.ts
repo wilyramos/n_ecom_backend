@@ -85,7 +85,6 @@ export class PaymentsController {
                 return;
             }
 
-            // Si el cliente seleccionó un método asíncrono (QR / PagoEfectivo) desde el modal
             if (culqiOrderId && !token) {
                 dbOrder.payment.culqiOrderId = culqiOrderId;
                 dbOrder.payment.status = PaymentStatus.PENDING;
@@ -98,10 +97,17 @@ export class PaymentsController {
                 return;
             }
 
-            // Si el cliente pagó de forma directa ingresando su Tarjeta
             if (token) {
+                const CULQI_FEE = 0.037;
+                const expectedAmount = Math.round((dbOrder.totalPrice * (1 + CULQI_FEE)) * 100);
+
+                if (Math.abs(amount - expectedAmount) > 1) { 
+                    res.status(400).json({ message: "El monto enviado no coincide con el total + comisión." });
+                    return;
+                }
+
                 const chargePayload = {
-                    amount,
+                    amount: amount, 
                     currency_code: String(currency_code).toUpperCase().trim(),
                     email: String(email).toLowerCase().trim(),
                     source_id: token,
@@ -124,6 +130,12 @@ export class PaymentsController {
                     res.status(culqiResponse.status).json({ status: "error", error: data });
                     return;
                 }
+
+                // Si es un flujo síncrono directo por API, impactamos la comisión de inmediato
+                dbOrder.totalPrice = Number((amount / 100).toFixed(2));
+                dbOrder.payment.status = PaymentStatus.APPROVED;
+                dbOrder.status = OrderStatus.PROCESSING;
+                await dbOrder.save();
 
                 res.status(200).json({ status: "success", message: "Pago procesado exitosamente", data });
                 return;
@@ -170,7 +182,7 @@ export class PaymentsController {
     }
 
     private static async _handleCulqiOrderStatusChanged(data: CulqiOrderWebhookData, session: mongoose.ClientSession, res: Response) {
-        const { id: culqiOrderId, state, order_number, payment_code, paid_at } = data;
+        const { id: culqiOrderId, state, order_number, payment_code, paid_at, amount } = data;
         session.startTransaction();
 
         const order = await Order.findOne({
@@ -201,6 +213,11 @@ export class PaymentsController {
                 return;
             }
 
+            // Sincronización del total pagado real con la comisión incluida desde el webhook (amount viene en céntimos)
+            if (amount) {
+                order.totalPrice = Number((amount / 100).toFixed(2));
+            }
+
             const stockResult = await descontarStock(order, session);
             if (!stockResult.ok) {
                 order.payment.status = PaymentStatus.APPROVED;
@@ -228,7 +245,7 @@ export class PaymentsController {
                     email: order.customerProfile.email,
                     name: order.customerProfile.nombre,
                     orderId: order.orderNumber,
-                    totalPrice: order.totalPrice,
+                    totalPrice: order.totalPrice, // Envía el total actualizado con comisión
                     shippingMethod: order.shippingAddress.direccion,
                     items: order.items,
                 }).catch(err => console.error('⚠️ Error enviando email Culqi:', err));
@@ -252,42 +269,13 @@ export class PaymentsController {
         res.status(200).json({ message: `Estado ${state} registrado con éxito.` });
     }
 
-    private static async _handleCulqiChargeStatusChanged(eventPayload: any, session: mongoose.ClientSession, res: Response) {
-        let chargeData = eventPayload;
-
-        if (eventPayload && eventPayload.data) {
-            chargeData = eventPayload.data;
-        }
-
-        if (typeof chargeData === 'string') {
-            try {
-                chargeData = JSON.parse(chargeData);
-            } catch (e) {
-                console.error("❌ [Webhook Cargo] Error al deserializar el string de data enviado por Culqi:", e);
-            }
-        }
-
-        const chargeId = chargeData?.id;
-        const culqiOrderId = chargeData?.order_id || null;
-        const mongoOrderId = chargeData?.metadata?.order_id || null;
-        const outcomeType = chargeData?.outcome?.type || '';
-
-        console.log(`🔍 [Webhook Cargo] Estructura normalizada con éxito para Cargo:`, {
-            chargeId,
-            culqiOrderId,
-            mongoOrderId,
-            outcomeType
-        });
+    private static async _handleCulqiChargeStatusChanged(data: CulqiChargeWebhookData, session: mongoose.ClientSession, res: Response) {
+        const { id: chargeId, order_id: culqiOrderId, metadata: chargeMetadata, outcome, amount } = data;
+        const mongoOrderId = chargeMetadata?.order_id || null;
+        const outcomeType = outcome?.type || '';
 
         if (!chargeId) {
-            session.endSession();
             res.status(200).json({ message: "Payload inválido o vacío" });
-            return;
-        }
-
-        if (!mongoOrderId && !culqiOrderId) {
-            session.endSession();
-            res.status(200).json({ message: "Sin referencias de vinculación comercial" });
             return;
         }
 
@@ -316,14 +304,18 @@ export class PaymentsController {
 
         order.payment.transactionId = chargeId;
         if (culqiOrderId) order.payment.culqiOrderId = culqiOrderId;
-        order.payment.rawResponse = chargeData;
+        order.payment.rawResponse = data;
 
         if (outcomeType === 'venta_exitosa') {
+            // Sincronización del total pagado real con la comisión incluida
+            if (amount) {
+                order.totalPrice = Number((amount / 100).toFixed(2));
+            }
+
             const stockResult = await descontarStock(order, session);
             if (!stockResult.ok) {
                 order.payment.status = PaymentStatus.APPROVED;
                 order.status = OrderStatus.PAID_BUT_OUT_OF_STOCK;
-
                 order.payment.culqiOrderState = 'paid';
                 order.statusHistory.push({ status: order.status, changedAt: new Date() });
                 await order.save({ session });
@@ -335,7 +327,6 @@ export class PaymentsController {
 
             order.payment.status = PaymentStatus.APPROVED;
             order.status = OrderStatus.PROCESSING;
-
             order.payment.culqiOrderState = 'paid';
             order.statusHistory.push({ status: order.status, changedAt: new Date() });
 
@@ -348,7 +339,7 @@ export class PaymentsController {
                     email: order.customerProfile.email,
                     name: order.customerProfile.nombre,
                     orderId: order.orderNumber,
-                    totalPrice: order.totalPrice,
+                    totalPrice: order.totalPrice, // Envía el total actualizado con comisión
                     shippingMethod: order.shippingAddress.direccion,
                     items: order.items,
                 }).catch(err => console.error('⚠️ [Webhook Cargo] Error diferido enviando email:', err));
@@ -361,7 +352,7 @@ export class PaymentsController {
             order.statusHistory.push({
                 status: order.status,
                 changedAt: new Date(),
-                note: `Cargo rechazado: ${chargeData?.outcome?.merchant_message || 'Sin detalle'}`
+                note: `Cargo rechazado: ${outcome?.merchant_message || 'Sin detalle'}`
             } as any);
 
             await order.save({ session });

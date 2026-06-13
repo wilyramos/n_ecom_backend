@@ -31,6 +31,7 @@ import reportRouter from './modules/reports/report.routes'
 import sliderBannerRouter from './modules/sliderbanner/sliderbanner.routes'
 import claimRouter from './modules/claim/claim.router'
 import userRouterV2 from './modules/users/users.router'
+import attendanceRouter from './modules/attendance/attendance.routes'
 
 import setupSwagger from './config/swagger.config'
 import collectionRouter from './modules/collection/collection.router'
@@ -69,6 +70,7 @@ app.use('/api/collections', collectionRouter) // Agregado router para coleccione
 app.use('/api/claims', claimRouter)
 app.use('/api/sections', sectionRouter)
 app.use('/api/advertisements', advertisementRouter) // Agregado router para avisos publicitarios
+app.use('/api/attendance', attendanceRouter)
 
 // Routers
 app.use('/api/auth', authRouter)

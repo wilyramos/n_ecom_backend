@@ -1,7 +1,6 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
-export type UserRole = 'cliente' | 'administrador' | 'vendedor';
-
+export type UserRole = 'cliente' | 'administrador' | 'vendedor' | 'colaborador';
 export interface IUser extends Document {
     nombre: string;
     apellidos?: string;
@@ -27,10 +26,10 @@ const userSchema = new Schema<IUser>({
     telefono: { type: String, required: false },
     rol: {
         type: String,
-        enum: ['cliente', 'administrador', 'vendedor'],
+        enum: ['cliente', 'administrador', 'vendedor', 'colaborador'],
         default: 'cliente'
     },
-    googleId: { type: String, required: false, unique: true, sparse: true }, // <- sparse evita conflictos si es null
+    googleId: { type: String, required: false, unique: true, sparse: true },
     
     // ==========================================
     // NUEVOS CAMPOS CONFIGURADOS SEGUROS

@@ -67,7 +67,7 @@ router.put('/:id/role',
     authenticate,
     isAdmin, 
     param('id').isMongoId().withMessage('El formato del ID de usuario es inválido'),
-    body('rol').isIn(['cliente', 'administrador', 'vendedor']).withMessage('El rol proporcionado no es válido'),
+    body('rol').isIn(['cliente', 'administrador', 'vendedor', 'colaborador']).withMessage('El rol proporcionado no es válido'),
     handleInputErrors,
     UsersController.changeUserRole
 );

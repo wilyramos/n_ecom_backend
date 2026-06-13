@@ -1,3 +1,5 @@
+//File: backend/src/models/Order.ts
+
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { IUser } from './User';
 import { IProduct } from './Product';

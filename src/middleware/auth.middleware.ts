@@ -20,7 +20,8 @@ declare global {
 // TIPOS
 // ─────────────────────────────────────────────────────────────
 
-type Role = 'administrador' | 'vendedor' | 'cliente';
+// Se añade 'colaborador' al tipo Role local del middleware
+type Role = 'administrador' | 'vendedor' | 'cliente' | 'colaborador';
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS PRIVADOS
@@ -98,10 +99,6 @@ export const authenticate = async (
  * Factory genérica — genera un middleware que permite
  * uno o más roles. Úsala para crear los middlewares específicos
  * o directamente en las rutas.
- *
- * @example
- * router.get('/admin', authenticate, authorizeRoles('administrador'), handler)
- * router.get('/panel', authenticate, authorizeRoles('administrador', 'vendedor'), handler)
  */
 export const authorizeRoles = (...roles: Role[]) =>
     (req: Request, res: Response, next: NextFunction): void => {
@@ -126,20 +123,24 @@ export const isAdmin = authorizeRoles('administrador');
 /** Solo vendedores */
 export const isVendedor = authorizeRoles('vendedor');
 
+/** Solo colaboradores */
+export const isColaborador = authorizeRoles('colaborador');
+
 /** Administradores y vendedores */
 export const isAdminOrVendedor = authorizeRoles('administrador', 'vendedor');
 
+/** Cualquier rol con acceso a la plataforma interna (CMS / Marcaje) */
+export const isInternalStaff = authorizeRoles('administrador', 'vendedor', 'colaborador');
+
 /** Cualquier usuario autenticado con rol válido */
-export const isAnyRole = authorizeRoles('administrador', 'vendedor', 'cliente');
+export const isAnyRole = authorizeRoles('administrador', 'vendedor', 'cliente', 'colaborador');
 
 // ─────────────────────────────────────────────────────────────
 // SHORTHAND — authenticate + autorización en un solo array
-// Útil para aplicar en router.use() de módulos admin.
-//
-// @example
-// router.use(authorizeAdmin)   // en lugar de [authenticate, isAdmin]
 // ─────────────────────────────────────────────────────────────
 
 export const authorizeAdmin         = [authenticate, isAdmin];
 export const authorizeVendedor      = [authenticate, isVendedor];
+export const authorizeColaborador   = [authenticate, isColaborador];
+export const authorizeInternalStaff = [authenticate, isInternalStaff];
 export const authorizeAdminOrVendedor = [authenticate, isAdminOrVendedor];

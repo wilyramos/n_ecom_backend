@@ -1,3 +1,4 @@
+// File: backend/src/controllers/MercadoPagoController.ts
 import { Request, Response } from 'express';
 import Order, { PaymentStatus, OrderStatus, IOrder } from '../models/Order';
 import Product from '../models/Product';
@@ -20,9 +21,9 @@ interface MPPaymentResponse {
     id: number;
     status: 'approved' | 'pending' | 'in_process' | 'rejected' | 'cancelled' | 'refunded';
     status_detail: string;
-    external_reference: string; 
+    external_reference: string;
     order?: { id: number; type: string };
-    preference_id: string; 
+    preference_id: string;
     transaction_amount: number;
     currency_id: string;
     payment_method_id: string;
@@ -62,7 +63,7 @@ function validateMPSignature(req: Request): boolean {
     const secret = process.env.MP_WEBHOOK_SECRET;
     if (!secret) {
         console.warn('⚠️ [MP Webhook] MP_WEBHOOK_SECRET no configurado — omitiendo validación');
-        return true; 
+        return true;
     }
 
     const xSignature = req.headers['x-signature'] as string;
@@ -128,31 +129,44 @@ export class MercadoPagoController {
 
             const cleanFrontendUrl = frontendUrl.replace(/\/$/, '');
             const cleanBackendUrl = backendUrl.replace(/\/$/, '');
-            // Validar si es local para apagar dinámicamente auto_return y evitar errores 400 de MP
             const isLocalhost = cleanFrontendUrl.includes('localhost') || cleanFrontendUrl.includes('127.0.0.1');
 
-            const items = order.items.map(item => ({
-                id: item.productId.toString(),
-                title: item.nombre,
-                quantity: item.quantity,
-                unit_price: item.price,
-                currency_id: order.currency || 'PEN',
-                picture_url: item.imagen || undefined,
-            }));
+            // Constantes matemáticas de Mercado Pago con IGV (18%) incluido
+            const MP_FIXED_FEE_WITH_IGV = 1.18; 
+            const MP_TOTAL_PERCENTAGE_FEE_WITH_IGV = 0.164964;
+
+            // Calculamos el total inflado exacto de la orden completa
+            const totalInflatedOrder = (order.totalPrice + MP_FIXED_FEE_WITH_IGV) / (1 - MP_TOTAL_PERCENTAGE_FEE_WITH_IGV);
+            
+            // Factor proporcional de aumento para distribuir a cada item de manera justa
+            const inflationFactor = totalInflatedOrder / order.totalPrice;
+
+            const items = order.items.map(item => {
+                const inflatedPrice = Number((item.price * inflationFactor).toFixed(2));
+                return {
+                    id: item.productId.toString(),
+                    title: item.nombre,
+                    quantity: item.quantity,
+                    unit_price: inflatedPrice,
+                    currency_id: order.currency || 'PEN',
+                    picture_url: item.imagen || undefined,
+                };
+            });
 
             if (order.shippingCost > 0) {
+                const inflatedShippingCost = Number((order.shippingCost * inflationFactor).toFixed(2));
                 items.push({
                     id: 'shipping',
                     title: 'Costo de envío',
                     quantity: 1,
-                    unit_price: order.shippingCost,
+                    unit_price: inflatedShippingCost,
                     currency_id: order.currency || 'PEN',
                     picture_url: undefined,
                 });
             }
 
             const preferenceBody = {
-                external_reference: order.orderNumber, 
+                external_reference: order.orderNumber,
                 items,
                 payer: {
                     name: order.customerProfile.nombre,
@@ -169,7 +183,7 @@ export class MercadoPagoController {
                     failure: `${cleanFrontendUrl}/checkout-result/resultado?status=failure&orderId=${order._id.toString()}`,
                     pending: `${cleanFrontendUrl}/checkout-result/resultado?status=pending&orderId=${order._id.toString()}`,
                 },
-                auto_return: isLocalhost ? undefined : 'approved',   
+                auto_return: isLocalhost ? undefined : 'approved',
                 notification_url: `${cleanBackendUrl}/api/checkout/webhook-mp`,
                 metadata: {
                     order_id: order._id.toString(),
@@ -215,17 +229,12 @@ export class MercadoPagoController {
     }
 
     static async handleWebhook(req: Request, res: Response) {
-        // Responder 200 de inmediato para mitigar reintentos por latencia
         res.status(200).json({ received: true });
-
         const session = await mongoose.startSession();
 
         try {
             const body = req.body as MPWebhookBody;
-
-            if (body.type !== 'payment' || !body.data?.id) {
-                return;
-            }
+            if (body.type !== 'payment' || !body.data?.id) return;
 
             if (process.env.NODE_ENV === 'production' && !validateMPSignature(req)) {
                 console.warn('⚠️ [MP Webhook] Firma inválida — ignorando notificación');
@@ -233,7 +242,6 @@ export class MercadoPagoController {
             }
 
             const paymentId = body.data.id;
-
             const mpPaymentRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
                 headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` },
             });
@@ -248,7 +256,6 @@ export class MercadoPagoController {
 
             session.startTransaction();
 
-            // Estrategia de búsqueda resiliente de 3 capas (External Reference -> Preference ID -> Metadata fallback)
             const order = await Order.findOne({
                 $or: [
                     { orderNumber: external_reference },
@@ -260,7 +267,6 @@ export class MercadoPagoController {
             if (!order) {
                 await session.abortTransaction();
                 session.endSession();
-                console.warn(`⚠️ [MP Webhook] Orden no encontrada para ref: ${external_reference} o pref: ${preference_id}`);
                 return;
             }
 
@@ -277,6 +283,10 @@ export class MercadoPagoController {
                     return;
                 }
 
+                if (payment.transaction_amount) {
+                    order.totalPrice = Number(payment.transaction_amount.toFixed(2));
+                }
+
                 const stockResult = await descontarStock(order, session);
 
                 if (!stockResult.ok) {
@@ -286,7 +296,6 @@ export class MercadoPagoController {
                     await order.save({ session });
                     await session.commitTransaction();
                     session.endSession();
-                    console.warn(`⚠️ [MP Webhook] Pago OK pero sin stock disponible: ${order.orderNumber}`);
                     return;
                 }
 
@@ -309,8 +318,7 @@ export class MercadoPagoController {
                     }).catch(err => console.error('⚠️ [MP Webhook] Error enviando email:', err));
                 }
 
-                console.log(`✅ [MP Webhook] Orden ${order.orderNumber} aprobada con éxito`);
-
+                console.log(`✅ [MP Webhook] Orden ${order.orderNumber} aprobada e inflada con éxito.`);
             } else if (status === 'rejected' || status === 'cancelled') {
                 if (order.status === OrderStatus.AWAITING_PAYMENT) {
                     order.status = OrderStatus.CANCELED;
@@ -320,8 +328,6 @@ export class MercadoPagoController {
                 await order.save({ session });
                 await session.commitTransaction();
                 session.endSession();
-                console.log(`❌ [MP Webhook] Pago rechazado para orden ${order.orderNumber}. Detalle: ${status_detail}`);
-
             } else {
                 order.payment.status = PaymentStatus.PENDING;
                 await order.save({ session });

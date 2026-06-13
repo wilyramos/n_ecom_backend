@@ -144,9 +144,12 @@ export class OrderController {
             }
 
             const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-
             // ─── COMUNICACIÓN CON CULQI ORDERS API ───────────────────────────
-            const amountInCents = Math.round(totalPrice * 100);
+            const CULQI_FEE = 0.037;
+            // CAMBIO AQUÍ: Sumamos la comisión antes de enviar los céntimos a Culqi
+            const totalPriceWithFee = totalPrice * (1 + CULQI_FEE);
+            const amountInCents = Math.round(totalPriceWithFee * 100);
+
             const expirationTimestamp = Math.floor(Date.now() / 1000) + (24 * 60 * 60); // 24 horas
 
             let culqiOrderId: string | undefined = undefined;

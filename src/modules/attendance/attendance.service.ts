@@ -30,6 +30,13 @@ export class AttendanceService {
         return d;
     }
 
+    private toMidnightLima(date: Date): Date {
+    // Obtiene la fecha en zona Lima y construye medianoche UTC correspondiente
+    const limaStr = date.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    // limaStr = "2026-06-16"
+    return new Date(`${limaStr}T00:00:00.000-05:00`);
+}
+
     /** Calcula horas trabajadas redondeadas a 2 decimales */
     private calcWorkHours(checkIn: Date, checkOut: Date): number {
         const diffMs = checkOut.getTime() - checkIn.getTime();
@@ -42,7 +49,7 @@ export class AttendanceService {
         }
 
         const now = new Date();
-        const today = this.toMidnight(now);
+        const today = this.toMidnightLima(now);
 
         const existing = await Attendance.findOne({
             userId: new Types.ObjectId(userId),
@@ -66,7 +73,7 @@ export class AttendanceService {
         }
 
         const now = new Date();
-        const today = this.toMidnight(now);
+        const today = this.toMidnightLima(now);
 
         const attendance = await Attendance.findOne({
             userId: new Types.ObjectId(userId),
@@ -125,8 +132,8 @@ export class AttendanceService {
         // Etapa A: Filtrado por fechas directas en la colección de asistencias
         const dateQuery: any = {};
         if (startDate || endDate) {
-            if (startDate) dateQuery.$gte = this.toMidnight(new Date(startDate));
-            if (endDate) dateQuery.$lte = this.toMidnight(new Date(endDate));
+            if (startDate) dateQuery.$gte = this.toMidnightLima(new Date(startDate));
+            if (endDate) dateQuery.$lte = this.toMidnightLima(new Date(endDate));
             pipeline.push({ $match: { date: dateQuery } });
         }
 

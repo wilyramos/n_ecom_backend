@@ -17,6 +17,7 @@ import purchaseRouter from './routes/purchaseRouter'
 import brandRouter from './routes/brandRouter'
 import sectionRouter from './modules/section/section.router'
 import advertisementRouter from './modules/advertisement/advertisement.routes'
+import pageRouter from './modules/page/page.routes'
 //Cor
 import cors from 'cors'
 import { globalErrorHandler } from './middleware/error.middleware'
@@ -71,6 +72,7 @@ app.use('/api/claims', claimRouter)
 app.use('/api/sections', sectionRouter)
 app.use('/api/advertisements', advertisementRouter) // Agregado router para avisos publicitarios
 app.use('/api/attendance', attendanceRouter)
+app.use('/api/pages', pageRouter)
 
 // Routers
 app.use('/api/auth', authRouter)

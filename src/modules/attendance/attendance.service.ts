@@ -7,10 +7,11 @@ import { AppError } from '../../utils/AppError';
 export interface IAttendanceFilterDto {
     startDate?: string;
     endDate?: string;
-    search?: string; // Cambiado userId por search
+    search?: string;
     page?: number;
     limit?: number;
 }
+
 export interface IPaginatedAttendance {
     data: IAttendance[];
     meta: {
@@ -19,25 +20,20 @@ export interface IPaginatedAttendance {
         limit: number;
         pages: number;
     };
+    stats: {
+        globalWorkHours: number;
+        globalTotalRecords: number;
+        globalActiveDays: number;
+    };
 }
 
 export class AttendanceService {
 
-    /** Normaliza una fecha a medianoche UTC para comparaciones consistentes */
-    private toMidnight(date: Date): Date {
-        const d = new Date(date);
-        d.setHours(0, 0, 0, 0);
-        return d;
+    private toMidnightLima(date: Date): Date {
+        const limaStr = date.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+        return new Date(`${limaStr}T00:00:00.000-05:00`);
     }
 
-    private toMidnightLima(date: Date): Date {
-    // Obtiene la fecha en zona Lima y construye medianoche UTC correspondiente
-    const limaStr = date.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    // limaStr = "2026-06-16"
-    return new Date(`${limaStr}T00:00:00.000-05:00`);
-}
-
-    /** Calcula horas trabajadas redondeadas a 2 decimales */
     private calcWorkHours(checkIn: Date, checkOut: Date): number {
         const diffMs = checkOut.getTime() - checkIn.getTime();
         return parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2));
@@ -47,7 +43,6 @@ export class AttendanceService {
         if (!Types.ObjectId.isValid(userId)) {
             throw new AppError('Identificador de usuario inválido.', 400);
         }
-
         const now = new Date();
         const today = this.toMidnightLima(now);
 
@@ -57,7 +52,7 @@ export class AttendanceService {
         });
 
         if (existing) {
-            throw new AppError('Ya registraste tu entrada para hoy.', 409); // 409 Conflict es más semántico que 400
+            throw new AppError('Ya registraste tu entrada para hoy.', 409);
         }
 
         return await Attendance.create({
@@ -71,7 +66,6 @@ export class AttendanceService {
         if (!Types.ObjectId.isValid(userId)) {
             throw new AppError('Identificador de usuario inválido.', 400);
         }
-
         const now = new Date();
         const today = this.toMidnightLima(now);
 
@@ -98,7 +92,7 @@ export class AttendanceService {
         userId: string,
         page = 1,
         limit = 30
-    ): Promise<IPaginatedAttendance> {
+    ): Promise<Omit<IPaginatedAttendance, 'stats'>> {
         if (!Types.ObjectId.isValid(userId)) {
             throw new AppError('Identificador de usuario inválido.', 400);
         }
@@ -121,15 +115,12 @@ export class AttendanceService {
         const { startDate, endDate, search, page = 1, limit = 10 } = filters;
         const skip = (page - 1) * limit;
 
-        // 1. Validaciones preventivas de rango de tiempo
         if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
             throw new AppError('La fecha de inicio no puede ser posterior a la fecha de fin.', 400);
         }
 
-        // 2. Construcción de etapas del Pipeline de Agregación
         const pipeline: any[] = [];
 
-        // Etapa A: Filtrado por fechas directas en la colección de asistencias
         const dateQuery: any = {};
         if (startDate || endDate) {
             if (startDate) dateQuery.$gte = this.toMidnightLima(new Date(startDate));
@@ -137,22 +128,19 @@ export class AttendanceService {
             pipeline.push({ $match: { date: dateQuery } });
         }
 
-        // Etapa B: Cruce de colecciones ($lookup relacional con la colección de usuarios)
         pipeline.push({
             $lookup: {
-                from: 'users', // Nombre exacto de la colección de usuarios en MongoDB
+                from: 'users',
                 localField: 'userId',
                 foreignField: '_id',
                 as: 'userDetails'
             }
         });
 
-        // Deshacer el array generado por el lookup para tener un objeto directo
         pipeline.push({ $unwind: '$userDetails' });
 
-        // Etapa C: Aplicar Filtro de Texto Global (Nombre, Apellidos, Email o DNI/RUC/CE)
         if (search && search.trim() !== "") {
-            const searchRegex = new RegExp(search.trim(), 'i'); // Case-insensitive
+            const searchRegex = new RegExp(search.trim(), 'i');
             pipeline.push({
                 $match: {
                     $or: [
@@ -165,7 +153,6 @@ export class AttendanceService {
             });
         }
 
-        // 3. Ejecución paralela facetada para obtener los registros paginados y el conteo total
         const aggregationResult = await Attendance.aggregate([
             ...pipeline,
             {
@@ -175,7 +162,6 @@ export class AttendanceService {
                         { $skip: skip },
                         { $limit: limit },
                         {
-                            // Estructuramos la salida para que coincida exactamente con el formato esperado en el frontend (Populate)
                             $project: {
                                 _id: 1,
                                 date: 1,
@@ -196,15 +182,31 @@ export class AttendanceService {
                             }
                         }
                     ],
-                    totalCount: [
-                        { $count: 'count' }
+                    globalStats: [
+                        {
+                            $group: {
+                                _id: null,
+                                totalHours: { $sum: { $ifNull: ['$workHours', 0] } },
+                                totalCount: { $sum: 1 },
+                                uniqueDays: { $addToSet: '$date' }
+                            }
+                        },
+                        {
+                            $project: {
+                                _id: 0,
+                                totalHours: { $round: ['$totalHours', 2] },
+                                totalCount: 1,
+                                activeDays: { $size: '$uniqueDays' }
+                            }
+                        }
                     ]
                 }
             }
         ]);
 
         const data = aggregationResult[0]?.records || [];
-        const total = aggregationResult[0]?.totalCount[0]?.count || 0;
+        const statsRaw = aggregationResult[0]?.globalStats[0] || { totalHours: 0, totalCount: 0, activeDays: 0 };
+        const total = statsRaw.totalCount;
 
         return {
             data,
@@ -213,6 +215,11 @@ export class AttendanceService {
                 page,
                 limit,
                 pages: Math.ceil(total / limit)
+            },
+            stats: {
+                globalWorkHours: statsRaw.totalHours,
+                globalTotalRecords: statsRaw.totalCount,
+                globalActiveDays: statsRaw.activeDays
             }
         };
     }

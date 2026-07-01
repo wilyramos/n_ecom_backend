@@ -8,21 +8,26 @@ import {
     downloadTicket,
     refundSale,
     exportSalesReport,
-    getById
+    getById,
+    generateManualTicketPdf
 } from './sale.controller';
 
 const router = Router();
 
 // --- OPERACIONES DE VENTA ---
-router.post('/', processSale);           // Crear venta real
-router.get('/', getSales);               // <-- Faltaba esta ruta para el listado/filtros
-router.get('/export', exportSalesReport); // Reporte CSV
-router.get('/:id/ticket', downloadTicket); // PDF
+router.post('/', processSale);           
+router.get('/', getSales);               
+router.get('/export', exportSalesReport); 
+router.get('/:id/ticket', downloadTicket); 
 router.get('/:id', getById);
+
 // --- OPERACIONES DE PROFORMAS ---
 router.post('/quote', createQuote);
 router.get('/quotes', getQuotes);
 router.post('/:id/convert', convertQuote);
 router.post('/:id/refund', refundSale);
+
+// --- NUEVO ENDPOINT EMISIÓN MANUAL SIN PERSISTENCIA ---
+router.post('/manual-ticket', generateManualTicketPdf);
 
 export default router;

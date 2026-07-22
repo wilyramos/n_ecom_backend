@@ -255,11 +255,11 @@ export class OrderController {
             }
 
             if (fecha) {
-                const startDate = new Date(fecha);
-                startDate.setUTCHours(0, 0, 0, 0); // Inicio del día UTC
+                const fechaInicioStr = `${fecha}T00:00:00.000-05:00`;
+                const fechaFinStr = `${fechaFin || fecha}T23:59:59.999-05:00`;
 
-                const endDate = new Date(fechaFin || fecha);
-                endDate.setUTCHours(23, 59, 59, 999); // Fin del día UTC
+                const startDate = new Date(fechaInicioStr);
+                const endDate = new Date(fechaFinStr);
 
                 searchConditions.createdAt = { $gte: startDate, $lte: endDate };
             }

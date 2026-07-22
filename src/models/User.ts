@@ -53,7 +53,7 @@ const userSchema = new Schema<IUser>({
 // ==========================================
 // Optimiza el rendimiento de getAllUsers y getAllClients que filtran por rol
 userSchema.index({ rol: 1, createdAt: -1 });
-
+userSchema.index({ rol: 1, isActive: 1 });
 // Permite buscar por documento eficientemente si se usa en los filtros
 userSchema.index({ numeroDocumento: 1 }, { sparse: true });
 

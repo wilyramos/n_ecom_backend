@@ -1,4 +1,3 @@
-// File: backend/src/controllers/MercadoPagoController.ts
 import { Request, Response } from 'express';
 import Order, { PaymentStatus, OrderStatus, IOrder } from '../models/Order';
 import Product from '../models/Product';
@@ -296,6 +295,12 @@ export class MercadoPagoController {
                     await order.save({ session });
                     await session.commitTransaction();
                     session.endSession();
+
+                    // Notificar a administradores (sin stock disponible)
+                    OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                        console.error('⚠️ [MP Webhook] Error notificando admins (sin stock):', err)
+                    );
+
                     return;
                 }
 
@@ -307,6 +312,7 @@ export class MercadoPagoController {
                 await session.commitTransaction();
                 session.endSession();
 
+                // Notificar al cliente
                 if (order.customerProfile?.email) {
                     OrderEmail.sendOrderConfirmationEmail({
                         email: order.customerProfile.email,
@@ -315,8 +321,13 @@ export class MercadoPagoController {
                         totalPrice: order.totalPrice,
                         shippingMethod: order.shippingAddress.direccion,
                         items: order.items,
-                    }).catch(err => console.error('⚠️ [MP Webhook] Error enviando email:', err));
+                    }).catch(err => console.error('⚠️ [MP Webhook] Error enviando email al cliente:', err));
                 }
+
+                // Notificar a administradores
+                OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                    console.error('⚠️ [MP Webhook] Error notificando admins por correo:', err)
+                );
 
                 console.log(`✅ [MP Webhook] Orden ${order.orderNumber} aprobada e inflada con éxito.`);
             } else if (status === 'rejected' || status === 'cancelled') {

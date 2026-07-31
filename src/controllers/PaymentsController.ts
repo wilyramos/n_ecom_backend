@@ -1,4 +1,3 @@
-// File: backend/src/controllers/PaymentsController.ts
 import { Request, Response } from 'express';
 import Order, { PaymentStatus, OrderStatus, IOrder } from '../models/Order';
 import Product from '../models/Product';
@@ -137,6 +136,22 @@ export class PaymentsController {
                 dbOrder.status = OrderStatus.PROCESSING;
                 await dbOrder.save();
 
+                // Notificar al cliente y a administradores
+                if (dbOrder.customerProfile?.email) {
+                    OrderEmail.sendOrderConfirmationEmail({
+                        email: dbOrder.customerProfile.email,
+                        name: dbOrder.customerProfile.nombre,
+                        orderId: dbOrder.orderNumber,
+                        totalPrice: dbOrder.totalPrice,
+                        shippingMethod: dbOrder.shippingAddress.direccion,
+                        items: dbOrder.items,
+                    }).catch(err => console.error('⚠️ Error enviando email de confirmación cliente:', err));
+                }
+
+                OrderEmail.notifyAdminsOnNewOrder(dbOrder).catch(err => 
+                    console.error('⚠️ Error enviando notificación a admins:', err)
+                );
+
                 res.status(200).json({ status: "success", message: "Pago procesado exitosamente", data });
                 return;
             }
@@ -213,7 +228,6 @@ export class PaymentsController {
                 return;
             }
 
-            // Sincronización del total pagado real con la comisión incluida desde el webhook (amount viene en céntimos)
             if (amount) {
                 order.totalPrice = Number((amount / 100).toFixed(2));
             }
@@ -227,6 +241,12 @@ export class PaymentsController {
                 await order.save({ session });
                 await session.commitTransaction();
                 session.endSession();
+
+                // Notificar a admins incluso cuando no hay stock
+                OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                    console.error('⚠️ Error notificando admins (sin stock):', err)
+                );
+
                 res.status(200).json({ message: 'Pago capturado, pero sin stock disponible' });
                 return;
             }
@@ -245,11 +265,16 @@ export class PaymentsController {
                     email: order.customerProfile.email,
                     name: order.customerProfile.nombre,
                     orderId: order.orderNumber,
-                    totalPrice: order.totalPrice, // Envía el total actualizado con comisión
+                    totalPrice: order.totalPrice,
                     shippingMethod: order.shippingAddress.direccion,
                     items: order.items,
                 }).catch(err => console.error('⚠️ Error enviando email Culqi:', err));
             }
+
+            // Notificación a administradores
+            OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                console.error('⚠️ Error notificando admins por correo:', err)
+            );
 
             res.status(200).json({ message: 'Orden completada exitosamente' });
             return;
@@ -307,7 +332,6 @@ export class PaymentsController {
         order.payment.rawResponse = data;
 
         if (outcomeType === 'venta_exitosa') {
-            // Sincronización del total pagado real con la comisión incluida
             if (amount) {
                 order.totalPrice = Number((amount / 100).toFixed(2));
             }
@@ -321,6 +345,12 @@ export class PaymentsController {
                 await order.save({ session });
                 await session.commitTransaction();
                 session.endSession();
+
+                // Notificar a admins incluso cuando no hay stock
+                OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                    console.error('⚠️ Error notificando admins (sin stock):', err)
+                );
+
                 res.status(200).json({ message: 'Pago capturado con éxito, pero sin stock físico disponible.' });
                 return;
             }
@@ -339,11 +369,16 @@ export class PaymentsController {
                     email: order.customerProfile.email,
                     name: order.customerProfile.nombre,
                     orderId: order.orderNumber,
-                    totalPrice: order.totalPrice, // Envía el total actualizado con comisión
+                    totalPrice: order.totalPrice,
                     shippingMethod: order.shippingAddress.direccion,
                     items: order.items,
                 }).catch(err => console.error('⚠️ [Webhook Cargo] Error diferido enviando email:', err));
             }
+
+            // Notificación a administradores
+            OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                console.error('⚠️ [Webhook Cargo] Error notificando admins:', err)
+            );
 
             res.status(200).json({ message: 'Cargo de tarjeta procesado e inventario actualizado con éxito.' });
             return;

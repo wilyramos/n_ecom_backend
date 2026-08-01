@@ -1,6 +1,6 @@
 // File: backend/src/modules/attendance/attendance.service.ts
 
-import { Types, FilterQuery } from 'mongoose';
+import { Types } from 'mongoose';
 import { Attendance, IAttendance } from './attendance.model';
 import { AppError } from '../../utils/AppError';
 
@@ -29,6 +29,21 @@ export interface IPaginatedAttendance {
 
 export class AttendanceService {
 
+    // Helper para parsear la fecha enviada en string (YYYY-MM-DD) al inicio del día en hora Perú (-05:00)
+    private parseStartOfDayLima(dateStr: string): Date {
+        const cleanDateStr = dateStr.split('T')[0];
+        const [year, month, day] = cleanDateStr.split('-');
+        return new Date(`${year}-${month}-${day}T00:00:00.000-05:00`);
+    }
+
+    // Helper para parsear la fecha enviada en string (YYYY-MM-DD) al final del día en hora Perú (-05:00)
+    private parseEndOfDayLima(dateStr: string): Date {
+        const cleanDateStr = dateStr.split('T')[0];
+        const [year, month, day] = cleanDateStr.split('-');
+        return new Date(`${year}-${month}-${day}T23:59:59.999-05:00`);
+    }
+
+    // Normaliza una fecha instanciada en tiempo de ejecución a la medianoche en hora Perú (-05:00)
     private toMidnightLima(date: Date): Date {
         const limaStr = date.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
         return new Date(`${limaStr}T00:00:00.000-05:00`);
@@ -123,8 +138,12 @@ export class AttendanceService {
 
         const dateQuery: any = {};
         if (startDate || endDate) {
-            if (startDate) dateQuery.$gte = this.toMidnightLima(new Date(startDate));
-            if (endDate) dateQuery.$lte = this.toMidnightLima(new Date(endDate));
+            if (startDate) {
+                dateQuery.$gte = this.parseStartOfDayLima(startDate);
+            }
+            if (endDate) {
+                dateQuery.$lte = this.parseEndOfDayLima(endDate);
+            }
             pipeline.push({ $match: { date: dateQuery } });
         }
 

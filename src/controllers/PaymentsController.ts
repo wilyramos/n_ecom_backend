@@ -84,17 +84,17 @@ export class PaymentsController {
                 return;
             }
 
-            if (culqiOrderId && !token) {
-                dbOrder.payment.culqiOrderId = culqiOrderId;
-                dbOrder.payment.status = PaymentStatus.PENDING;
-                await dbOrder.save();
+            // if (culqiOrderId && !token) {
+            //     dbOrder.payment.culqiOrderId = culqiOrderId;
+            //     dbOrder.payment.status = PaymentStatus.PENDING;
+            //     await dbOrder.save();
 
-                res.status(200).json({
-                    status: "pending",
-                    message: "Orden asíncrona registrada de forma interactiva.",
-                });
-                return;
-            }
+            //     res.status(200).json({
+            //         status: "pending",
+            //         message: "Orden asíncrona registrada de forma interactiva.",
+            //     });
+            //     return;
+            // }
 
             if (token) {
                 const CULQI_FEE = 0.037;
@@ -215,10 +215,10 @@ export class PaymentsController {
             return;
         }
 
-        order.payment.culqiOrderId = culqiOrderId;
-        order.payment.culqiOrderState = state;
-        if (payment_code) order.payment.culqiPaymentCode = payment_code;
-        order.payment.rawResponse = data;
+        // order.payment.culqiOrderId = culqiOrderId;
+        // order.payment.culqiOrderState = state;
+        // if (payment_code) order.payment.culqiPaymentCode = payment_code;
+        // order.payment.rawResponse = data;
 
         if (state === 'paid') {
             if (order.payment.status === PaymentStatus.APPROVED) {
@@ -236,7 +236,7 @@ export class PaymentsController {
             if (!stockResult.ok) {
                 order.payment.status = PaymentStatus.APPROVED;
                 order.status = OrderStatus.PAID_BUT_OUT_OF_STOCK;
-                if (paid_at) order.payment.culqiPaidAt = paid_at;
+                // if (paid_at) order.payment.culqiPaidAt = paid_at;
                 order.statusHistory.push({ status: order.status, changedAt: new Date() });
                 await order.save({ session });
                 await session.commitTransaction();
@@ -253,7 +253,7 @@ export class PaymentsController {
 
             order.payment.status = PaymentStatus.APPROVED;
             order.status = OrderStatus.PROCESSING;
-            if (paid_at) order.payment.culqiPaidAt = paid_at;
+            // if (paid_at) order.payment.culqiPaidAt = paid_at;
             order.statusHistory.push({ status: order.status, changedAt: new Date() });
 
             await order.save({ session });
@@ -328,8 +328,8 @@ export class PaymentsController {
         }
 
         order.payment.transactionId = chargeId;
-        if (culqiOrderId) order.payment.culqiOrderId = culqiOrderId;
-        order.payment.rawResponse = data;
+        // if (culqiOrderId) order.payment.culqiOrderId = culqiOrderId;
+        // order.payment.rawResponse = data;
 
         if (outcomeType === 'venta_exitosa') {
             if (amount) {
@@ -340,7 +340,7 @@ export class PaymentsController {
             if (!stockResult.ok) {
                 order.payment.status = PaymentStatus.APPROVED;
                 order.status = OrderStatus.PAID_BUT_OUT_OF_STOCK;
-                order.payment.culqiOrderState = 'paid';
+                // order.payment.culqiOrderState = 'paid';
                 order.statusHistory.push({ status: order.status, changedAt: new Date() });
                 await order.save({ session });
                 await session.commitTransaction();
@@ -357,7 +357,7 @@ export class PaymentsController {
 
             order.payment.status = PaymentStatus.APPROVED;
             order.status = OrderStatus.PROCESSING;
-            order.payment.culqiOrderState = 'paid';
+            // order.payment.culqiOrderState = 'paid';
             order.statusHistory.push({ status: order.status, changedAt: new Date() });
 
             await order.save({ session });

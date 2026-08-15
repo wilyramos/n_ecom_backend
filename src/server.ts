@@ -19,6 +19,7 @@ import sectionRouter from './modules/section/section.router'
 import advertisementRouter from './modules/advertisement/advertisement.routes'
 import pageRouter from './modules/page/page.routes'
 
+
 // Cors
 import cors from 'cors'
 import { globalErrorHandler } from './middleware/error.middleware'

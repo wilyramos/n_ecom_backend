@@ -34,6 +34,7 @@ export const getTicketById = async (req: Request, res: Response, next: NextFunct
   }
 }
 
+// 1. PDF Ticket
 export const downloadTicketPdf = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params
@@ -44,7 +45,6 @@ export const downloadTicketPdf = async (req: Request, res: Response, next: NextF
     }
 
     const pdfBuffer = await TicketService.generateTicketPdfBuffer(ticket)
-
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `inline; filename=ticket-${ticket.numeroNota}.pdf`)
     res.send(pdfBuffer)
@@ -53,9 +53,28 @@ export const downloadTicketPdf = async (req: Request, res: Response, next: NextF
   }
 }
 
+// 2. PDF Profesional con QR
+export const downloadProfessionalPdf = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { id } = req.params
+    const ticket = await TicketService.getTicketById(id)
+    if (!ticket) {
+      res.status(404).json({ success: false, message: 'Comprobante no encontrado' })
+      return
+    }
+
+    const pdfBuffer = await TicketService.generateProfessionalPdfBuffer(ticket)
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename=boleta-electronica-${ticket.numeroNota}.pdf`)
+    res.send(pdfBuffer)
+  } catch (error) {
+    next(error)
+  }
+}
+
 export const bulkPrintTicketsPdf = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { ids } = req.body
+    const { ids, format } = req.body
     if (!Array.isArray(ids) || ids.length === 0) {
       res.status(400).json({ success: false, message: 'Lista de IDs no proporcionada.' })
       return
@@ -67,7 +86,9 @@ export const bulkPrintTicketsPdf = async (req: Request, res: Response, next: Nex
       return
     }
 
-    const pdfBuffer = await TicketService.generateMultipleTicketsPdfBuffer(tickets)
+    const pdfBuffer = format === 'professional'
+      ? await TicketService.generateMultipleProfessionalPdfBuffer(tickets)
+      : await TicketService.generateMultipleTicketsPdfBuffer(tickets)
 
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `inline; filename=comprobantes-seleccionados.pdf`)
@@ -79,7 +100,7 @@ export const bulkPrintTicketsPdf = async (req: Request, res: Response, next: Nex
 
 export const bulkDownloadTicketsZip = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { ids } = req.body
+    const { ids, format } = req.body
     if (!Array.isArray(ids) || ids.length === 0) {
       res.status(400).json({ success: false, message: 'Lista de IDs no proporcionada.' })
       return
@@ -91,7 +112,7 @@ export const bulkDownloadTicketsZip = async (req: Request, res: Response, next: 
       return
     }
 
-    const zipBuffer = await TicketService.generateTicketsZipBuffer(tickets)
+    const zipBuffer = await TicketService.generateTicketsZipBuffer(tickets, format === 'professional' ? 'professional' : 'ticket')
 
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', `attachment; filename=comprobantes-seleccionados.zip`)
@@ -103,7 +124,11 @@ export const bulkDownloadTicketsZip = async (req: Request, res: Response, next: 
 
 export const previewGeneratedPdf = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const pdfBuffer = await TicketService.generateTicketPdfBuffer(req.body)
+    const { format, ...data } = req.body
+    const pdfBuffer = format === 'professional'
+      ? await TicketService.generateProfessionalPdfBuffer(data)
+      : await TicketService.generateTicketPdfBuffer(data)
+
     res.setHeader('Content-Type', 'application/pdf')
     res.send(pdfBuffer)
   } catch (error) {
@@ -139,6 +164,25 @@ export const convertTicket = async (req: Request, res: Response, next: NextFunct
     const result = await TicketService.convertToSaleNote(data, filename)
 
     res.status(201).json({
+      success: true,
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const updateTicket = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { id } = req.params
+    const result = await TicketService.updateTicket(id, req.body)
+
+    if (!result) {
+      res.status(404).json({ success: false, message: 'Comprobante no encontrado para actualizar' })
+      return
+    }
+
+    res.status(200).json({
       success: true,
       data: result,
     })

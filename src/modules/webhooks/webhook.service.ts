@@ -1,19 +1,18 @@
-// File: backend/src/modules/webhooks/webhook.service.ts
-
 import { IPaymentStrategy } from './strategies/payment.strategy.interface';
 import { MercadoPagoStrategy } from './strategies/mercadopago.strategy';
 import { CulqiStrategy } from './strategies/culqi.strategy';
 import { IzipayStrategy } from './strategies/izipay.strategy';
+import { PowerpayStrategy } from './strategies/powerpay.strategy';
 
 export class WebhookService {
     private strategies: Record<string, IPaymentStrategy>;
 
     constructor() {
-        // Registro de todas las pasarelas soportadas
         this.strategies = {
             mercadopago: new MercadoPagoStrategy(),
             culqi: new CulqiStrategy(),
             izipay: new IzipayStrategy(),
+            powerpay: new PowerpayStrategy(),
         };
     }
 

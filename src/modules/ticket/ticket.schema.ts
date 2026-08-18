@@ -1,3 +1,4 @@
+// backend/src/modules/ticket/ticket.schema.ts
 import { z } from 'zod'
 
 export const ticketItemSchema = z.object({
@@ -11,6 +12,7 @@ export const ticketItemSchema = z.object({
 export const convertirTicketSchema = z.object({
   body: z.object({
     filename: z.string().optional(),
+    originalFilename: z.string().optional(),
     tipoComprobante: z.string().optional(),
     numeroNota: z.string().min(1, 'El número de comprobante es requerido'),
     empresa: z.string().optional().default(''),

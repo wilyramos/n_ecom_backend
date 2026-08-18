@@ -2,6 +2,15 @@
 import { Request, Response, NextFunction } from 'express'
 import { TicketService } from './ticket.service'
 
+function resolvePdfFileName(ticket: any, fallbackPrefix: string): string {
+  if (ticket.originalFilename && ticket.originalFilename.trim() !== '') {
+    const raw = ticket.originalFilename.trim()
+    return raw.toLowerCase().endsWith('.pdf') ? raw : `${raw}.pdf`
+  }
+  const sanitizedNumero = (ticket.numeroNota || ticket._id.toString()).replace(/[^a-zA-Z0-9-_]/g, '_')
+  return `${fallbackPrefix}-${sanitizedNumero}.pdf`
+}
+
 export const getTickets = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const page = Number(req.query.page) || 1
@@ -34,7 +43,6 @@ export const getTicketById = async (req: Request, res: Response, next: NextFunct
   }
 }
 
-// 1. PDF Ticket
 export const downloadTicketPdf = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params
@@ -45,15 +53,17 @@ export const downloadTicketPdf = async (req: Request, res: Response, next: NextF
     }
 
     const pdfBuffer = await TicketService.generateTicketPdfBuffer(ticket)
+    const fileName = resolvePdfFileName(ticket, 'ticket')
+
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `inline; filename=ticket-${ticket.numeroNota}.pdf`)
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`)
+    res.setHeader('X-Filename', fileName)
     res.send(pdfBuffer)
   } catch (error) {
     next(error)
   }
 }
 
-// 2. PDF Profesional con QR
 export const downloadProfessionalPdf = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params
@@ -64,8 +74,11 @@ export const downloadProfessionalPdf = async (req: Request, res: Response, next:
     }
 
     const pdfBuffer = await TicketService.generateProfessionalPdfBuffer(ticket)
+    const fileName = resolvePdfFileName(ticket, 'boleta-electronica')
+
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `inline; filename=boleta-electronica-${ticket.numeroNota}.pdf`)
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`)
+    res.setHeader('X-Filename', fileName)
     res.send(pdfBuffer)
   } catch (error) {
     next(error)
@@ -91,7 +104,7 @@ export const bulkPrintTicketsPdf = async (req: Request, res: Response, next: Nex
       : await TicketService.generateMultipleTicketsPdfBuffer(tickets)
 
     res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `inline; filename=comprobantes-seleccionados.pdf`)
+    res.setHeader('Content-Disposition', `inline; filename="comprobantes-seleccionados.pdf"`)
     res.send(pdfBuffer)
   } catch (error) {
     next(error)
@@ -115,7 +128,7 @@ export const bulkDownloadTicketsZip = async (req: Request, res: Response, next: 
     const zipBuffer = await TicketService.generateTicketsZipBuffer(tickets, format === 'professional' ? 'professional' : 'ticket')
 
     res.setHeader('Content-Type', 'application/zip')
-    res.setHeader('Content-Disposition', `attachment; filename=comprobantes-seleccionados.zip`)
+    res.setHeader('Content-Disposition', `attachment; filename="comprobantes-seleccionados.zip"`)
     res.send(zipBuffer)
   } catch (error) {
     next(error)
@@ -149,6 +162,7 @@ export const uploadTempAndExtract = async (req: Request, res: Response, next: Ne
       success: true,
       data: {
         filename: req.file.filename,
+        originalFilename: req.file.originalname,
         url: `/uploads/temp/${req.file.filename}`,
         extracted: extractedData,
       },

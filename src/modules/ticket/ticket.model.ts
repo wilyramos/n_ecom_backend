@@ -11,7 +11,7 @@ const ticketItemSchema = new Schema({
 
 const ticketSchema = new Schema(
   {
-    tipoComprobante: { type: String, default: 'NOTA DE VENTA' }, // NOTA DE VENTA o BOLETA ELECTRÓNICA
+    tipoComprobante: { type: String, default: 'BOLETA ELECTRÓNICA' },
     numeroNota: { type: String, required: true },
     empresa: { type: String },
     rucEmpresa: { type: String },
@@ -29,6 +29,8 @@ const ticketSchema = new Schema(
     subtotal: { type: Number },
     igv: { type: Number },
     monto: { type: Number, required: true },
+    filename: { type: String },
+    originalFilename: { type: String },
     fechaDigitalizacion: { type: Date, default: Date.now },
   },
   { timestamps: true }

@@ -53,9 +53,6 @@ async function getLogoBuffer(): Promise<Buffer | null> {
   });
 }
 
-/**
- * Convierte un número a su representación literal en soles peruanos
- */
 function numeroALetrasSoles(monto: number): string {
   const unidades = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
   const decenas = ['', 'DIEZ', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
@@ -334,7 +331,6 @@ export class TicketService {
     doc.rect(cardX, cardY, cardWidth, cardHeight).fillColor('#FFFFFF', 1).strokeColor('#E4E4E7').lineWidth(1).fillAndStroke();
     doc.restore();
 
-    // Cursor vertical estrictamente controlado para evitar solapamientos
     let cursorY = cardY + 16;
 
     const drawDashedDivider = () => {
@@ -709,6 +705,9 @@ export class TicketService {
     });
   }
 
+  /**
+   * Empaqueta los tickets conservando el nombre de archivo original subido si existe
+   */
   static async generateTicketsZipBuffer(ticketsData: any[], format: 'ticket' | 'professional' = 'ticket'): Promise<Buffer> {
     const zip = new JSZip();
 
@@ -716,8 +715,18 @@ export class TicketService {
       const pdfBuffer = format === 'professional'
         ? await this.generateProfessionalPdfBuffer(ticket)
         : await this.generateTicketPdfBuffer(ticket);
-      const sanitizedName = (ticket.numeroNota || ticket._id.toString()).replace(/[^a-zA-Z0-9-_]/g, '_');
-      zip.file(`Comprobante-${sanitizedName}.pdf`, pdfBuffer);
+
+      let fileName: string;
+
+      if (ticket.originalFilename && ticket.originalFilename.trim() !== '') {
+        const rawName = ticket.originalFilename.trim();
+        fileName = rawName.endsWith('.pdf') ? rawName : `${rawName}.pdf`;
+      } else {
+        const sanitizedNumero = (ticket.numeroNota || ticket._id.toString()).replace(/[^a-zA-Z0-9-_]/g, '_');
+        fileName = `20613242784-03-${sanitizedNumero}.pdf`;
+      }
+
+      zip.file(fileName, pdfBuffer);
     }
 
     return await zip.generateAsync({
@@ -744,6 +753,7 @@ export class TicketService {
       query.$or = [
         { cliente: { $regex: search, $options: 'i' } },
         { numeroNota: { $regex: search, $options: 'i' } },
+        { originalFilename: { $regex: search, $options: 'i' } },
       ];
     }
 
@@ -789,6 +799,8 @@ export class TicketService {
       hora: this.cleanText(data.hora),
       cajero: this.cleanText(data.cajero),
       caja: this.cleanText(data.caja),
+      filename: data.filename || filename,
+      originalFilename: data.originalFilename || filename,
       items: sanitizedItems,
       subtotal,
       igv,
@@ -837,6 +849,8 @@ export class TicketService {
       hora: this.cleanText(data.hora),
       cajero: this.cleanText(data.cajero),
       caja: this.cleanText(data.caja),
+      filename: data.filename,
+      originalFilename: data.originalFilename,
       items: sanitizedItems,
       subtotal,
       igv,

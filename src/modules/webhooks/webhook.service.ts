@@ -17,17 +17,23 @@ export class WebhookService {
     }
 
     async handleWebhook(provider: string, payload: Record<string, unknown>, signature?: string): Promise<void> {
-        const strategy = this.strategies[provider.toLowerCase()];
+        const key = provider.toLowerCase();
+        console.log(`⚙️ [Webhook Service] Resolviendo estrategia para el proveedor: "${key}"`);
+
+        const strategy = this.strategies[key];
         
         if (!strategy) {
-            console.warn(`⚠️ [Webhooks Service] Proveedor no soportado o inválido: ${provider}`);
+            console.warn(`⚠️ [Webhook Service] Proveedor no soportado o inválido: ${provider}`);
             return;
         }
 
+        console.log(`🔄 [Webhook Service] Ejecutando estrategia [${strategy.constructor.name}]`);
         const success = await strategy.processWebhook(payload, signature);
         
         if (!success) {
-            console.warn(`⚠️ [Webhooks Service] El procesamiento del payload para ${provider} falló o fue descartado.`);
+            console.warn(`⚠️ [Webhook Service] Falló o fue descartado el procesamiento para ${provider}`);
+        } else {
+            console.log(`✅ [Webhook Service] Procesamiento completado con éxito para ${provider}`);
         }
     }
 }

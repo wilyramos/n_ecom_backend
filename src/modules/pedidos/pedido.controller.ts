@@ -42,11 +42,39 @@ export class PedidoController {
   obtenerPedidoPorId = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
-      const pedido = await this.pedidoService.obtenerPedidoPorId(id);
+      const userId = req.user?._id?.toString();
+      const userEmail = req.user?.email;
+      const isAdmin = req.user?.rol === 'administrador' || req.user?.rol === 'vendedor';
+
+      const pedido = await this.pedidoService.obtenerPedidoPorId(id, userId, userEmail, isAdmin);
 
       res.status(200).json({
         success: true,
         data: pedido,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Devuelve las compras del usuario logueado (incluye las compras como invitado con el mismo correo)
+   */
+  obtenerMisPedidos = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user?._id?.toString();
+      const userEmail = req.user?.email;
+
+      if (!userId || !userEmail) {
+        res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+        return;
+      }
+
+      const pedidos = await this.pedidoService.obtenerMisPedidosCliente(userId, userEmail);
+
+      res.status(200).json({
+        success: true,
+        data: pedidos,
       });
     } catch (error) {
       next(error);
@@ -98,7 +126,14 @@ export class PedidoController {
   obtenerPedidoPorNumero = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { orderNumber } = req.params;
-      const pedido = await this.pedidoService.obtenerPedidoPorNumero(orderNumber);
+      const emailOrDoc = req.query.emailOrDoc as string | undefined;
+
+      let pedido;
+      if (emailOrDoc) {
+        pedido = await this.pedidoService.consultarTrackingPublico(orderNumber, emailOrDoc);
+      } else {
+        pedido = await this.pedidoService.obtenerPedidoPorNumero(orderNumber);
+      }
 
       res.status(200).json({
         success: true,

@@ -1,67 +1,77 @@
-// File: backend/src/modules/webhooks/strategies/mercadopago.strategy.ts
-
 import { IPaymentStrategy } from './payment.strategy.interface';
-import Pedido from '../../pedidos/pedido.model';
-import { EstadoPago, EstadoPedido } from '../../pedidos/pedido.model';
-import { payment as mpPayment } from '../../../utils/mercadopago'; 
+import Pedido, { EstadoPago, EstadoPedido } from '../../pedidos/pedido.model';
+import { payment as mpPayment } from '../../../utils/mercadopago';
+import { PedidoService } from '../../pedidos/pedido.service';
 
 export class MercadoPagoStrategy implements IPaymentStrategy {
-    async processWebhook(payload: Record<string, unknown>, signature?: string): Promise<boolean> {
+    private pedidoService: PedidoService;
+
+    constructor() {
+        this.pedidoService = new PedidoService();
+    }
+
+    async processWebhook(payload: Record<string, unknown>): Promise<boolean> {
         try {
-            // Extraer el ID dependiendo del tipo de notificación (IPN vs Webhook)
             const dataObj = payload?.data as Record<string, unknown> | undefined;
             const paymentId = (dataObj?.id || payload?.id) as string | number | undefined;
 
             if (!paymentId) return false;
 
-            // 1. Consultar el pago en la API oficial para evitar spoofing
+            // 1. Consultar el pago en la API oficial de Mercado Pago para evitar spoofing
             const paymentInfo = await mpPayment.get({ id: String(paymentId) });
-
-            if (!paymentInfo) return false;
+            if (!paymentInfo || !paymentInfo.external_reference) return false;
 
             const externalReference = paymentInfo.external_reference;
-            const mpStatus = paymentInfo.status; 
+            const mpStatus = paymentInfo.status;
 
-            if (!externalReference) return false;
-
-            // 2. Buscar el pedido correspondiente
+            // 2. Buscar el pedido por el número de orden
             const pedido = await Pedido.findOne({ orderNumber: externalReference });
             if (!pedido) return false;
 
-            let newPaymentStatus = EstadoPago.PENDING;
-            let newOrderStatus = pedido.status;
-
-            // 3. Mapear estado de Mercado Pago a nuestro sistema
-            if (mpStatus === 'approved') {
-                newPaymentStatus = EstadoPago.APPROVED;
-                newOrderStatus = EstadoPedido.PROCESSING;
-            } else if (mpStatus === 'rejected' || mpStatus === 'cancelled') {
-                newPaymentStatus = EstadoPago.REJECTED;
-            } else if (mpStatus === 'refunded') {
-                newPaymentStatus = EstadoPago.REFUNDED;
-                newOrderStatus = EstadoPedido.CANCELED;
+            // Idempotencia: Si ya estaba aprobado, no procesar nuevamente
+            if (pedido.payment.status === EstadoPago.APPROVED) {
+                return true;
             }
 
-            // 4. Actualizar en Base de Datos solo si hubo cambios reales
-            if (pedido.payment.status !== newPaymentStatus) {
-                pedido.payment.status = newPaymentStatus;
+            let estadoModificado = false;
+
+            // 3. Mapeo directo de estados según Mercado Pago
+            if (mpStatus === 'approved') {
+                pedido.payment.status = EstadoPago.APPROVED;
+                pedido.status = EstadoPedido.PROCESSING;
+                pedido.payment.paidAt = new Date();
+                estadoModificado = true;
+            } else if (mpStatus === 'rejected' || mpStatus === 'cancelled') {
+                if (pedido.payment.status !== EstadoPago.REJECTED) {
+                    pedido.payment.status = EstadoPago.REJECTED;
+                    pedido.status = EstadoPedido.CANCELED;
+                    estadoModificado = true;
+                }
+            } else if (mpStatus === 'refunded') {
+                if (pedido.payment.status !== EstadoPago.REFUNDED) {
+                    pedido.payment.status = EstadoPago.REFUNDED;
+                    pedido.status = EstadoPedido.CANCELED;
+                    estadoModificado = true;
+                }
+            }
+
+            // 4. Persistir cambios y disparar notificaciones
+            if (estadoModificado) {
                 pedido.payment.transactionId = String(paymentId);
                 pedido.payment.gatewayData = paymentInfo as unknown as Record<string, unknown>;
-                
-                if (newPaymentStatus === EstadoPago.APPROVED) {
-                    pedido.payment.paidAt = new Date();
-                }
-
-                if (pedido.status !== newOrderStatus) {
-                    pedido.status = newOrderStatus;
-                    pedido.statusHistory.push({
-                        status: newOrderStatus,
-                        changedAt: new Date()
-                    });
-                }
+                pedido.statusHistory.push({
+                    status: pedido.status,
+                    changedAt: new Date(),
+                });
 
                 await pedido.save();
-                console.log(`🚀 [MP Webhook] Pedido ${externalReference} actualizado a ${newPaymentStatus}.`);
+                console.log(`🚀 [MP Webhook] Pedido ${externalReference} actualizado a ${pedido.payment.status}.`);
+
+                if (pedido.payment.status === EstadoPago.APPROVED) {
+                    this.pedidoService.dispararCorreosConfirmacion(pedido).catch((err) =>
+                        console.error('Error background correo MP Webhook:', err)
+                    );
+                }
             }
 
             return true;

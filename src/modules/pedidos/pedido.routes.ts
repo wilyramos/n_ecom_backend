@@ -1,3 +1,5 @@
+//File: backend/src/modules/pedidos/pedido.routes.ts
+
 import { Router } from 'express';
 import { PedidoController } from './pedido.controller';
 import { validateSchema } from '../../middleware/validate.middleware';
@@ -11,7 +13,7 @@ import {
 const router = Router();
 const pedidoController = new PedidoController();
 
-// POST /api/pedidos - Crear pedido inicial (awaiting_payment)
+// Crear pedido (logueado o invitado)
 router.post(
   '/',
   authenticateOptional,
@@ -19,22 +21,31 @@ router.post(
   pedidoController.crearPedido
 );
 
-// POST /api/pedidos/culqi-charge - Procesar cobro directo en Culqi con Token
+// Procesar cobro directo Culqi con token
 router.post('/culqi-charge', authenticateOptional, pedidoController.procesarCargoCulqi);
 
-// GET /api/pedidos/stats - Obtener métricas de recaudación (Debe ir ANTES de /:id)
+// Mis pedidos del cliente logueado (incluye históricos por email)
+router.get('/mis-pedidos', authenticate, pedidoController.obtenerMisPedidos);
+
+// Métricas para panel admin
 router.get('/stats', authenticate, isAdminOrVendedor, pedidoController.obtenerEstadisticas);
 
-// GET /api/pedidos/tracking/:orderNumber - Consulta pública por número de orden
+// Consulta por número de orden / tracking público
 router.get('/tracking/:orderNumber', pedidoController.obtenerPedidoPorNumero);
 
-// GET /api/pedidos - Listar pedidos (Admin o Vendedor)
+// Listar todos los pedidos (Admin o Vendedor)
 router.get('/', authenticate, isAdminOrVendedor, pedidoController.obtenerPedidos);
 
-// GET /api/pedidos/:id - Obtener pedido por ID
+// Obtener pedido por ID
 router.get('/:id', authenticateOptional, validateSchema(obtenerPedidoPorIdSchema), pedidoController.obtenerPedidoPorId);
 
-// PATCH /api/pedidos/:id/status - Actualizar estado logístico
-router.patch('/:id/status', authenticate, isAdminOrVendedor, validateSchema(actualizarEstadoPedidoSchema), pedidoController.actualizarEstadoPedido);
+// Actualizar estado logístico (Admin o Vendedor)
+router.patch(
+  '/:id/status',
+  authenticate,
+  isAdminOrVendedor,
+  validateSchema(actualizarEstadoPedidoSchema),
+  pedidoController.actualizarEstadoPedido
+);
 
 export default router;

@@ -1,3 +1,5 @@
+//File: backend/src/modules/pedidos/pedido.interfaces.ts
+
 import { Types } from 'mongoose';
 import { EstadoPedido, EstadoPago, TipoDocumento, TipoComprobante } from './pedido.model';
 

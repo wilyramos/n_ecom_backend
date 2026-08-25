@@ -9,41 +9,12 @@ import {
   IRespuestaCrearPedido,
 } from './pedido.interfaces';
 import { Types, FilterQuery } from 'mongoose';
-import { preference } from '../../utils/mercadopago';
+import crypto from 'crypto';
+import { PaymentGatewayFactory } from './gateways/payment-gateway.factory';
+import { OrderEmail } from '../../emails/OrderEmailResend';
+import { InventoryService } from '../inventory/inventory.service';
 
 const MP_SURCHARGE_RATE = 0.12;
-
-interface CulqiOrderResponse {
-  id: string;
-  object: string;
-  amount: number;
-  currency_code: string;
-  payment_code?: string;
-  state?: string;
-}
-
-interface CulqiChargeSuccessResponse {
-  id: string;
-  object: string;
-  amount: number;
-  currency_code: string;
-  outcome?: {
-    type: string;
-    code: string;
-    merchant_message: string;
-    user_message: string;
-  };
-}
-
-interface CulqiChargeErrorResponse {
-  object: 'error';
-  type: string;
-  merchant_message: string;
-  user_message: string;
-  param?: string;
-}
-
-type CulqiApiResponse = CulqiChargeSuccessResponse | CulqiChargeErrorResponse;
 
 interface StatsAggregationResult {
   ventasAprobadas: Array<{ montoTotal: number; conteoAprobados: number }>;
@@ -53,28 +24,29 @@ interface StatsAggregationResult {
 export class PedidoService {
   private async generarNumeroPedido(): Promise<string> {
     const hoy = new Date();
-
-    // Formato YYMMDD (Ej: 260809 para 9 de Agosto de 2026)
     const year = hoy.getFullYear().toString().slice(-2);
     const month = String(hoy.getMonth() + 1).padStart(2, '0');
     const day = String(hoy.getDate()).padStart(2, '0');
     const fechaStr = `${year}${month}${day}`;
 
+    const inicioDia = new Date(hoy);
+    inicioDia.setHours(0, 0, 0, 0);
+
+    const finDia = new Date(hoy);
+    finDia.setHours(23, 59, 59, 999);
+
     const conteo = await Pedido.countDocuments({
-      createdAt: {
-        $gte: new Date(hoy.setHours(0, 0, 0, 0)),
-        $lt: new Date(hoy.setHours(23, 59, 59, 999)),
-      },
+      createdAt: { $gte: inicioDia, $lt: finDia },
     });
 
     const secuencia = String(conteo + 1).padStart(4, '0');
+    const randomSalt = crypto.randomBytes(2).toString('hex').toUpperCase();
 
-    // Retorna un número de orden limpio y profesional. Ej: 260809-0001
-    return `${fechaStr}-${secuencia}`;
+    return `${fechaStr}${secuencia}${randomSalt}`;
   }
+
   private calcularTotales(items: CrearPedidoInput['items'], shippingCost: number, provider: string) {
     const montoTotalItems = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
-
     const recargoFinanciero =
       provider === 'mercadopago' ? Number((montoTotalItems * MP_SURCHARGE_RATE).toFixed(2)) : 0;
 
@@ -91,6 +63,56 @@ export class PedidoService {
     };
   }
 
+  async dispararCorreosConfirmacion(pedido: IPedido): Promise<void> {
+    try {
+      const fullAddress =
+        pedido.deliveryMethod === 'pickup'
+          ? 'Recojo en Tienda'
+          : `${pedido.shippingAddress.direccion} (${pedido.shippingAddress.distrito}, ${pedido.shippingAddress.provincia})`;
+
+      const customerName = `${pedido.customerProfile.nombre} ${pedido.customerProfile.apellidos || ''}`.trim();
+
+      await Promise.allSettled([
+        OrderEmail.sendOrderConfirmationEmail({
+          email: pedido.customerProfile.email,
+          name: customerName,
+          orderId: pedido.orderNumber,
+          totalPrice: pedido.totalPrice,
+          shippingMethod: fullAddress,
+          items: pedido.items as any,
+        }),
+        OrderEmail.notifyAdminsOnNewOrder(pedido),
+      ]);
+    } catch (error) {
+      console.error(`⚠️ [PedidoService] Fallo enviando correos de orden #${pedido.orderNumber}:`, error);
+    }
+  }
+
+  /**
+   * Transición atómica a APROBADO: registra pago, descuenta stock e inicia envíos de correos
+   */
+  async confirmarPagoAprobado(pedido: IPedido, transactionId: string, gatewayData?: any): Promise<void> {
+    if (pedido.payment.status === EstadoPago.APPROVED) return;
+
+    pedido.payment.status = EstadoPago.APPROVED;
+    pedido.payment.transactionId = transactionId;
+    pedido.payment.paidAt = new Date();
+    if (gatewayData) pedido.payment.gatewayData = gatewayData;
+
+    pedido.status = EstadoPedido.PROCESSING;
+    pedido.statusHistory.push({ status: EstadoPedido.PROCESSING, changedAt: new Date() });
+
+    await pedido.save();
+
+    // Descuenta stock únicamente cuando el cobro fue confirmado
+    await InventoryService.descontarStockItems(pedido.items);
+
+    // Dispara correos de confirmación
+    this.dispararCorreosConfirmacion(pedido).catch((err) =>
+      console.error('Error background correo confirmación:', err)
+    );
+  }
+
   async crearPedido(data: CrearPedidoInput, userId?: string): Promise<IRespuestaCrearPedido<IPedido>> {
     const orderNumber = await this.generarNumeroPedido();
     const { subtotal, igv, shippingCost, recargoFinanciero, totalPrice } = this.calcularTotales(
@@ -102,7 +124,10 @@ export class PedidoService {
     const nuevoPedido = new Pedido({
       orderNumber,
       user: userId ? new Types.ObjectId(userId) : undefined,
-      customerProfile: data.customerProfile,
+      customerProfile: {
+        ...data.customerProfile,
+        email: data.customerProfile.email.trim().toLowerCase(),
+      },
       deliveryMethod: data.deliveryMethod,
       invoiceInfo: data.invoiceInfo,
       items: data.items.map((item) => ({
@@ -130,98 +155,32 @@ export class PedidoService {
     let initPoint: string | null = null;
     let culqiOrderId: string | null = null;
 
-    if (data.payment.provider === 'mercadopago') {
-      const itemsMP = data.items.map((item) => ({
-        id: item.productId.toString(),
-        title: item.nombre,
-        quantity: item.quantity,
-        unit_price: item.price,
-        currency_id: 'PEN',
-      }));
+    const gatewayService = PaymentGatewayFactory.get(data.payment.provider);
 
-      if (shippingCost > 0) {
-        itemsMP.push({ id: 'ENVIO', title: 'Envío', quantity: 1, unit_price: shippingCost, currency_id: 'PEN' });
+    if (gatewayService) {
+      const gatewayResult = await gatewayService.crearPreferencia(nuevoPedido, data, userId);
+      initPoint = gatewayResult.initPoint || null;
+      culqiOrderId = data.payment.provider === 'culqi' ? gatewayResult.gatewayOrderId || null : null;
+
+      if (gatewayResult.gatewayOrderId) {
+        nuevoPedido.payment.gatewayOrderId = gatewayResult.gatewayOrderId;
       }
-
-      const prefResponse = await preference.create({
-        body: {
-          items: itemsMP,
-          payer: {
-            name: data.customerProfile.nombre,
-            surname: data.customerProfile.apellidos,
-            email: data.customerProfile.email,
-          },
-          back_urls: {
-            success: `${process.env.FRONTEND_URL}/checkout-result/success/${orderNumber}`,
-            failure: `${process.env.FRONTEND_URL}/checkout-result/failure?order=${orderNumber}`,
-            pending: `${process.env.FRONTEND_URL}/checkout-result/pending`,
-          },
-          auto_return: 'approved',
-          external_reference: orderNumber,
-        },
-      });
-
-      initPoint = prefResponse.init_point || null;
-      nuevoPedido.payment.gatewayOrderId = prefResponse.id;
-    } else if (data.payment.provider === 'culqi') {
-      // 🚀 CREAR ORDEN EN CULQI DESDE EL BACKEND
-      const culqiOrderPayload = {
-        amount: Math.round(totalPrice * 100),
-        currency_code: data.currency || 'PEN',
-        description: `Orden de Compra ${orderNumber}`,
-        order_number: orderNumber,
-        client_details: {
-          first_name: data.customerProfile.nombre,
-          last_name: data.customerProfile.apellidos,
-          email: data.customerProfile.email,
-          phone_number: data.customerProfile.telefono,
-        },
-        expiration_date: Math.floor(Date.now() / 1000) + 86400, // 24H
-      };
-
-      try {
-        const culqiOrderRes = await fetch('https://api.culqi.com/v2/orders', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.CULQI_API_KEY}`,
-          },
-          body: JSON.stringify(culqiOrderPayload),
-        });
-
-        const culqiOrderData = (await culqiOrderRes.json()) as CulqiOrderResponse;
-
-        if (culqiOrderRes.ok && culqiOrderData.id) {
-          culqiOrderId = culqiOrderData.id;
-          nuevoPedido.payment.gatewayOrderId = culqiOrderId;
-        }
-      } catch (err) {
-        console.error('[PedidoService] Fetch error en Culqi Orders:', err);
+      if (gatewayResult.gatewayData) {
+        nuevoPedido.payment.gatewayData = gatewayResult.gatewayData;
       }
     }
 
     await nuevoPedido.save();
     return { pedido: nuevoPedido, initPoint, culqiOrderId };
   }
-
-
   async procesarCargoCulqi(orderNumber: string, culqiTokenOrOrder: string) {
-    const pedido = await Pedido.findOne({ orderNumber });
-    if (!pedido) {
-      throw new Error('No se encontró el pedido a procesar.');
-    }
+    const pedido = await Pedido.findOne({ orderNumber: orderNumber.trim() });
+    if (!pedido) throw new Error('No se encontró el pedido a procesar.');
+    if (pedido.payment.status === EstadoPago.APPROVED) return { pedido, status: 'approved' };
+    if (!process.env.CULQI_API_KEY) throw new Error('Configuración incompleta: CULQI_API_KEY ausente.');
 
-    if (pedido.payment.status === EstadoPago.APPROVED) {
-      return { pedido };
-    }
-
-    if (!process.env.CULQI_API_KEY) {
-      throw new Error('Configuración de pasarela incompleta (CULQI_API_KEY ausente).');
-    }
-
-    // 🚀 CASO 1: ES UNA ORDEN (PAGOEFECTIVO, CUOTÉALO, BILLETERA QR)
+    // 1. Caso Orden Diferida (CIP / PagoEfectivo / Cuotéalo / QR)
     if (culqiTokenOrOrder.startsWith('ord_')) {
-      // Consultar el estado actual de la orden en Culqi para extraer el CIP o el QR (si es que no se pagó aún)
       const fetchOrderRes = await fetch(`https://api.culqi.com/v2/orders/${culqiTokenOrOrder}`, {
         method: 'GET',
         headers: {
@@ -230,39 +189,32 @@ export class PedidoService {
         },
       });
 
-      if (fetchOrderRes.ok) {
-        const orderData: any = await fetchOrderRes.json();
+      let paymentCode = undefined;
 
+      if (fetchOrderRes.ok) {
+        const orderData = (await fetchOrderRes.json()) as Record<string, unknown>;
         pedido.payment.gatewayData = orderData;
 
-        // Extraer Código de PagoEfectivo
-        if (orderData.payment_code) {
+        if (typeof orderData.payment_code === 'string') {
           pedido.payment.paymentCode = orderData.payment_code;
+          paymentCode = orderData.payment_code;
         }
 
-        // Si el estado en Culqi ya dice 'paid' (El cliente escaneó el QR en el modal y se aprobó rápido)
         if (orderData.state === 'paid') {
-          pedido.payment.status = EstadoPago.APPROVED;
-          pedido.payment.transactionId = orderData.id;
-          pedido.payment.paidAt = new Date();
-          pedido.status = EstadoPedido.PROCESSING;
-          pedido.statusHistory.push({ status: EstadoPedido.PROCESSING, changedAt: new Date() });
-          await pedido.save();
-          return { pedido };
+          await this.confirmarPagoAprobado(pedido, orderData.id as string, orderData);
+          return { pedido, status: 'approved' };
         }
       }
 
-      // Si sigue pendiente en Culqi (El cliente generó el QR/CIP pero cerró el modal para pagar luego)
       pedido.payment.status = EstadoPago.PENDING;
       pedido.payment.gatewayOrderId = culqiTokenOrOrder;
       pedido.status = EstadoPedido.AWAITING_PAYMENT;
       await pedido.save();
-      return { pedido };
+      return { pedido, status: 'pending', paymentCode };
     }
 
-    // 🚀 CASO 2: ES UN TOKEN (TARJETA DE CRÉDITO / DÉBITO / YAPE APP DIRECTO)
+    // 2. Caso Cargo Inmediato con Token (Tarjetas, Yape directo)
     const amountInCents = Math.round(pedido.totalPrice * 100);
-
     const culqiPayload = {
       amount: amountInCents,
       currency_code: pedido.currency || 'PEN',
@@ -273,9 +225,7 @@ export class PedidoService {
         last_name: pedido.customerProfile.apellidos,
         phone_number: pedido.customerProfile.telefono,
       },
-      metadata: {
-        orderNumber: pedido.orderNumber,
-      },
+      metadata: { orderNumber: pedido.orderNumber },
     };
 
     const culqiResponse = await fetch('https://api.culqi.com/v2/charges', {
@@ -287,35 +237,119 @@ export class PedidoService {
       body: JSON.stringify(culqiPayload),
     });
 
-    const culqiData = (await culqiResponse.json()) as CulqiApiResponse;
+    const culqiData = (await culqiResponse.json()) as Record<string, any>;
 
     if (!culqiResponse.ok) {
-      const errorData = culqiData as CulqiChargeErrorResponse;
       pedido.payment.status = EstadoPago.REJECTED;
       await pedido.save();
-      const userMessage =
-        errorData.user_message || errorData.merchant_message || 'Transacción denegada por el banco emisor.';
-      throw new Error(userMessage);
+      throw new Error(culqiData.user_message || culqiData.merchant_message || 'Transacción denegada por el banco emisor.');
     }
 
-    const successData = culqiData as CulqiChargeSuccessResponse;
-
-    pedido.payment.status = EstadoPago.APPROVED;
-    pedido.payment.transactionId = successData.id;
-    pedido.payment.paidAt = new Date();
-    pedido.payment.gatewayData = successData as unknown as Record<string, unknown>;
-
-    pedido.status = EstadoPedido.PROCESSING;
-    pedido.statusHistory.push({ status: EstadoPedido.PROCESSING, changedAt: new Date() });
-
-    await pedido.save();
-    return { pedido };
+    await this.confirmarPagoAprobado(pedido, culqiData.id, culqiData);
+    return { pedido, status: 'approved' };
   }
 
-  async obtenerPedidoPorId(pedidoId: string): Promise<IPedido> {
-    const pedido = await Pedido.findById(pedidoId).populate('user', 'nombre email');
-    if (!pedido) throw new Error('Pedido no encontrado');
+  async obtenerMisPedidosCliente(userId: string, email: string): Promise<IPedido[]> {
+    const cleanEmail = email.trim().toLowerCase();
+
+    return await Pedido.find({
+      $or: [
+        { user: new Types.ObjectId(userId) },
+        { user: { $exists: false }, 'customerProfile.email': cleanEmail },
+        { user: null, 'customerProfile.email': cleanEmail },
+      ],
+    })
+      .sort({ createdAt: -1 })
+      .populate('user', 'nombre apellidos email');
+  }
+
+  async obtenerPedidoPorId(pedidoId: string, userId?: string, email?: string, isAdmin: boolean = false): Promise<IPedido> {
+    const cleanEmail = email ? email.trim().toLowerCase() : undefined;
+    let filtro: FilterQuery<IPedido> = { _id: pedidoId };
+
+    if (!isAdmin && (userId || cleanEmail)) {
+      filtro = {
+        _id: pedidoId,
+        $or: [
+          ...(userId ? [{ user: new Types.ObjectId(userId) }] : []),
+          ...(cleanEmail ? [{ 'customerProfile.email': cleanEmail }] : []),
+        ],
+      };
+    }
+
+    const pedido = await Pedido.findOne(filtro).populate('user', 'nombre email');
+    if (!pedido) {
+      const error: any = new Error('Pedido no encontrado o no autorizado.');
+      error.statusCode = 404;
+      throw error;
+    }
     return pedido;
+  }
+
+  async obtenerPedidoPorNumero(orderNumber: string): Promise<IPedido> {
+    const cleanSearch = orderNumber.trim();
+    const alphanumericOnly = cleanSearch.replace(/[^a-zA-Z0-9]/g, '');
+    const flexibleRegex = new RegExp(`^${alphanumericOnly.split('').join('-?')}$`, 'i');
+
+    const pedido = await Pedido.findOne({
+      $or: [
+        { orderNumber: cleanSearch },
+        { orderNumber: flexibleRegex },
+        { 'payment.gatewayOrderId': cleanSearch },
+        { 'payment.transactionId': cleanSearch },
+      ],
+    }).populate('user', 'nombre email');
+
+    if (!pedido) {
+      const error: any = new Error(`No se encontró el pedido: ${orderNumber}`);
+      error.statusCode = 404;
+      throw error;
+    }
+    return pedido;
+  }
+
+  async consultarTrackingPublico(orderNumber: string, emailOrDoc: string): Promise<IPedido> {
+    const cleanSearch = orderNumber.trim();
+    const alphanumericOnly = cleanSearch.replace(/[^a-zA-Z0-9]/g, '');
+    const flexibleRegex = new RegExp(`^${alphanumericOnly.split('').join('-?')}$`, 'i');
+    const docOrEmail = emailOrDoc.trim().toLowerCase();
+
+    const pedido = await Pedido.findOne({
+      $and: [
+        {
+          $or: [
+            { orderNumber: cleanSearch },
+            { orderNumber: flexibleRegex },
+            { 'payment.gatewayOrderId': cleanSearch },
+          ],
+        },
+        {
+          $or: [
+            { 'customerProfile.email': docOrEmail },
+            { 'customerProfile.numeroDocumento': docOrEmail },
+          ],
+        },
+      ],
+    }).select('-payment.gatewayData');
+
+    if (!pedido) {
+      const error: any = new Error('No se encontró el pedido con los datos proporcionados.');
+      error.statusCode = 404;
+      throw error;
+    }
+    return pedido;
+  }
+
+  async vincularPedidosInvitado(email: string, userId: string): Promise<number> {
+    const cleanEmail = email.trim().toLowerCase();
+    const result = await Pedido.updateMany(
+      {
+        $or: [{ user: { $exists: false } }, { user: null }],
+        'customerProfile.email': cleanEmail,
+      },
+      { $set: { user: new Types.ObjectId(userId) } }
+    );
+    return result.modifiedCount;
   }
 
   async obtenerPedidos(params: IPedidoQueryParams): Promise<IRespuestaPedidosPaginados<IPedido>> {
@@ -324,7 +358,6 @@ export class PedidoService {
     const skip = (page - 1) * limit;
 
     const filtro: FilterQuery<IPedido> = {};
-
     if (params.status) filtro.status = params.status;
     if (params.userId) filtro.user = new Types.ObjectId(params.userId);
     if (params.paymentProvider) filtro['payment.provider'] = params.paymentProvider;
@@ -356,18 +389,32 @@ export class PedidoService {
     return { data, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
 
+  /**
+   * Actualiza el estado logístico del pedido y repone el stock si la orden pagada es cancelada
+   */
   async actualizarEstadoPedido(pedidoId: string, nuevoEstado: EstadoPedido): Promise<IPedido> {
     const pedido = await Pedido.findById(pedidoId);
     if (!pedido) throw new Error('Pedido no encontrado');
+
+    const estadoAnterior = pedido.status;
+    const pagoAprobadoPrevio = pedido.payment.status === EstadoPago.APPROVED;
+
+    if (estadoAnterior === nuevoEstado) return pedido;
+
     pedido.status = nuevoEstado;
     pedido.statusHistory.push({ status: nuevoEstado, changedAt: new Date() });
-    return await pedido.save();
-  }
 
-  async obtenerPedidoPorNumero(orderNumber: string): Promise<IPedido> {
-    const pedido = await Pedido.findOne({ orderNumber }).populate('user', 'nombre email');
-    if (!pedido) throw new Error('Pedido no encontrado');
-    return pedido;
+    // Si se cancela una orden que ya tenía el stock descontado -> Reponer stock
+    if (
+      pagoAprobadoPrevio &&
+      nuevoEstado === EstadoPedido.CANCELED &&
+      estadoAnterior !== EstadoPedido.CANCELED
+    ) {
+      await InventoryService.reponerStockItems(pedido.items);
+      console.log(`📦 [Inventario] Stock reabastecido para la orden cancelada #${pedido.orderNumber}`);
+    }
+
+    return await pedido.save();
   }
 
   async obtenerEstadisticasPedidos(): Promise<IEstadisticasPedidos> {
@@ -419,5 +466,46 @@ export class PedidoService {
       entregadosCount: delivered,
       canceladosCount: canceled,
     };
+  }
+
+  // File: backend/src/modules/pedidos/pedido.service.ts
+
+  /**
+   * Tarea Cron: Expira y cancela órdenes en estado pendiente que superaron el tiempo de expiración
+   * Cumple con el lineamiento técnico de Powerpay (30 min de vigencia + 10 min de tolerancia).
+   */
+  async expirarOrdenesPendientesPowerpay(): Promise<number> {
+    const TOLERANCIA_MINUTOS = 10;
+    const VIGENCIA_POWERPAY_MINUTOS = 30;
+    const LIMITE_EXPIRACION_MS = (VIGENCIA_POWERPAY_MINUTOS + TOLERANCIA_MINUTOS) * 60 * 1000;
+    const fechaCorte = new Date(Date.now() - LIMITE_EXPIRACION_MS);
+
+    // Busca pedidos de Powerpay que sigan en 'awaiting_payment' o pago 'pending'
+    const pedidosAExpirar = await Pedido.find({
+      'payment.provider': 'powerpay',
+      status: EstadoPedido.AWAITING_PAYMENT,
+      'payment.status': EstadoPago.PENDING,
+      createdAt: { $lte: fechaCorte },
+    });
+
+    if (pedidosAExpirar.length === 0) {
+      return 0;
+    }
+
+    console.log(`⏱️ [Powerpay Cron] Expirando ${pedidosAExpirar.length} orden(es) abandonada(s)...`);
+
+    for (const pedido of pedidosAExpirar) {
+      pedido.status = EstadoPedido.CANCELED;
+      pedido.payment.status = EstadoPago.REJECTED;
+      pedido.statusHistory.push({
+        status: EstadoPedido.CANCELED,
+        changedAt: new Date(),
+      });
+
+      await pedido.save();
+      console.log(`❌ [Powerpay Cron] Pedido #${pedido.orderNumber} marcado como CANCELED (Expirado).`);
+    }
+
+    return pedidosAExpirar.length;
   }
 }

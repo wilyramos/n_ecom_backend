@@ -46,6 +46,9 @@ dotenv.config()
 
 const app = express()
 
+// Enable trust proxy to get the correct client IP address when behind a reverse proxy
+app.set('trust proxy', true)
+
 connectDB()
 
 app.use(morgan('dev'))

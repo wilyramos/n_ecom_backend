@@ -194,6 +194,7 @@ pedidoSchema.index({ status: 1 });
 pedidoSchema.index({ 'payment.transactionId': 1 });
 pedidoSchema.index({ 'payment.gatewayOrderId': 1 });
 pedidoSchema.index({ 'payment.paymentCode': 1 });
+pedidoSchema.index({ 'customerProfile.email': 1, user: 1 });
 
 const Pedido = mongoose.model<IPedido>('Pedido', pedidoSchema);
 

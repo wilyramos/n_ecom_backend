@@ -538,17 +538,18 @@ export class TicketService {
     currentY = drawInfoRow('Dirección', ticketData.direccionCliente || '--', currentY);
 
     const metaY = currentY + 6;
+    const cleanOrdenCompra = this.sanitizeOriginalFilename(ticketData.originalFilename || ticketData.filename || '');
     const metaCols = [
       { label: 'F. Emisión', val: ticketData.fecha || '--', x: leftMargin, w: 100 },
       { label: 'F. Vencimiento', val: ticketData.fecha || '--', x: leftMargin + 110, w: 100 },
       { label: 'Forma de pago', val: 'Contado', x: leftMargin + 230, w: 100 },
-      { label: '# Orden de compra', val: '--', x: leftMargin + 360, w: 120 },
+      { label: '# Orden de compra', val: cleanOrdenCompra || '--', x: leftMargin + 360, w: 120 },
     ];
 
     doc.save().rect(leftMargin, metaY - 3, contentWidth, 14).fillColor('#F8FAFC').fill().restore();
     metaCols.forEach((col) => {
       doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#006699').text(col.label, col.x + 4, metaY);
-      doc.font('Helvetica').fontSize(7.5).fillColor('#000000').text(col.val, col.x + 4, metaY + 15);
+      doc.font('Helvetica').fontSize(7.5).fillColor('#000000').text(col.val, col.x + 4, metaY + 15, { width: col.w - 8, lineGap: 1 });
     });
     doc.save().moveTo(leftMargin, metaY + 28).lineTo(rightMargin, metaY + 28).lineWidth(1).strokeColor('#006699').stroke().restore();
 

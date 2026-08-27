@@ -1,4 +1,3 @@
-// backend/src/modules/ticket/ticket.model.ts
 import { Schema, model } from 'mongoose'
 
 const ticketItemSchema = new Schema({
@@ -30,7 +29,7 @@ const ticketSchema = new Schema(
     igv: { type: Number },
     monto: { type: Number, required: true },
     filename: { type: String },
-    originalFilename: { type: String },
+    originalFilename: { type: String, index: true },
     fechaDigitalizacion: { type: Date, default: Date.now },
   },
   { timestamps: true }

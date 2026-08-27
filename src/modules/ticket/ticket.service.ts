@@ -1,4 +1,3 @@
-// backend/src/modules/ticket/ticket.service.ts
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
@@ -19,9 +18,6 @@ interface ITicketItem {
 
 let cachedLogoPngBuffer: Buffer | null = null;
 
-/**
- * Obtiene el logo corporativo desde https://www.neoshopimportaciones.com/neoshop-negro.png
- */
 async function getLogoBuffer(): Promise<Buffer | null> {
   if (cachedLogoPngBuffer) return cachedLogoPngBuffer;
 
@@ -131,6 +127,12 @@ export class TicketService {
     let text = val.replace(/[\t\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     text = text.replace(/\s+,/g, ',').replace(/,\s{2,}/g, ', ');
     return text === '--' || text === '-' ? '' : text;
+  }
+
+  private static sanitizeOriginalFilename(val?: string): string {
+    if (!val) return '';
+    const cleaned = this.cleanText(val);
+    return path.parse(cleaned).name;
   }
 
   private static calculateTaxes(items: ITicketItem[], totalDirecto?: number) {
@@ -288,9 +290,6 @@ export class TicketService {
     };
   }
 
-  // ==========================================
-  // FORMATO 1: TICKET A4 (ESTILO RECIBO)
-  // ==========================================
   private static async renderSingleTicketA4(
     doc: PDFKit.PDFDocument,
     ticketData: any,
@@ -474,9 +473,6 @@ export class TicketService {
     doc.font('Helvetica').fontSize(7).fillColor('#555555').text(`${pageNumber}/${totalPages}`, pageEdgeMargin, bottomEdgeY, { align: 'right', width: edgeContentWidth });
   }
 
-  // ==========================================
-  // FORMATO 2: FACTURA / BOLETA PROFESIONAL A4 CON QR SUNAT
-  // ==========================================
   private static async renderProfessionalInvoiceA4(
     doc: PDFKit.PDFDocument,
     ticketData: any
@@ -627,7 +623,7 @@ export class TicketService {
 
     const obsY = letrasY + 16;
     doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000000').text('Observaciones:', leftMargin, obsY);
-    doc.font('Helvetica').fontSize(7).text('Gracias por su compra.', leftMargin, obsY + 10);
+    doc.font('Helvetica').fontSize(7.5).text('Gracias por su compra.', leftMargin, obsY + 10);
     doc.save().moveTo(leftMargin, obsY + 23).lineTo(rightMargin, obsY + 23).lineWidth(0.8).strokeColor('#006699').stroke().restore();
 
     const footerY = obsY + 34;
@@ -705,9 +701,6 @@ export class TicketService {
     });
   }
 
-  /**
-   * Empaqueta los tickets conservando el nombre de archivo original subido si existe
-   */
   static async generateTicketsZipBuffer(ticketsData: any[], format: 'ticket' | 'professional' = 'ticket'): Promise<Buffer> {
     const zip = new JSZip();
 
@@ -800,7 +793,7 @@ export class TicketService {
       cajero: this.cleanText(data.cajero),
       caja: this.cleanText(data.caja),
       filename: data.filename || filename,
-      originalFilename: data.originalFilename || filename,
+      originalFilename: this.sanitizeOriginalFilename(data.originalFilename || filename),
       items: sanitizedItems,
       subtotal,
       igv,
@@ -837,7 +830,7 @@ export class TicketService {
 
     const { subtotal, igv, monto } = this.calculateTaxes(sanitizedItems, Number(data.monto || 0));
 
-    const sanitizedData = {
+    const sanitizedData: any = {
       ...data,
       cliente: this.cleanText(data.cliente),
       numeroNota: this.cleanText(data.numeroNota),
@@ -850,12 +843,15 @@ export class TicketService {
       cajero: this.cleanText(data.cajero),
       caja: this.cleanText(data.caja),
       filename: data.filename,
-      originalFilename: data.originalFilename,
       items: sanitizedItems,
       subtotal,
       igv,
       monto,
     };
+
+    if (data.originalFilename !== undefined) {
+      sanitizedData.originalFilename = this.sanitizeOriginalFilename(data.originalFilename);
+    }
 
     const updated = await TicketModel.findByIdAndUpdate(id, sanitizedData, { new: true });
     return updated;

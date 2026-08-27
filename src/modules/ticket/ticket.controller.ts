@@ -1,5 +1,5 @@
-// backend/src/modules/ticket/ticket.controller.ts
 import { Request, Response, NextFunction } from 'express'
+import path from 'path'
 import { TicketService } from './ticket.service'
 
 function resolvePdfFileName(ticket: any, fallbackPrefix: string): string {
@@ -157,12 +157,13 @@ export const uploadTempAndExtract = async (req: Request, res: Response, next: Ne
     }
 
     const extractedData = await TicketService.parsePdfLocal(req.file.path)
+    const cleanOriginalName = path.parse(req.file.originalname).name
 
     res.status(200).json({
       success: true,
       data: {
         filename: req.file.filename,
-        originalFilename: req.file.originalname,
+        originalFilename: cleanOriginalName,
         url: `/uploads/temp/${req.file.filename}`,
         extracted: extractedData,
       },

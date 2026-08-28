@@ -1,13 +1,12 @@
-// File: backend/src/emails/OrderEmailResend.ts
-
 import { resend } from "../config/resend";
 import { baseEmailTemplate } from "./templates/baseEmailTemplate";
 import type { IOrderItem } from "../models/Order";
 import User from "../models/User";
+import { EstadoPedido } from "../modules/pedidos/pedido.model";
 
 export class OrderEmail {
   /**
-   * Envía el correo de confirmación de pedido al cliente.
+   * Envía el correo de confirmación de pedido pagado al cliente.
    */
   static async sendOrderConfirmationEmail({
     email,
@@ -62,7 +61,7 @@ export class OrderEmail {
             </p>
 
             <p style="margin-top:8px; font-size:15px;">
-              <strong>Direccion de envío:</strong> ${shippingMethod}
+              <strong>Dirección de entrega:</strong> ${shippingMethod}
             </p>
 
             <h3 style="margin-top:20px; font-size:17px; font-weight:600;">Resumen de tu pedido</h3>
@@ -87,7 +86,7 @@ export class OrderEmail {
             </p>
 
             <p style="margin-top:20px; font-size:14px; color:#4b5563;">
-              Recibirás una notificación cuando tu pedido sea enviado.
+              Recibirás una notificación por correo cada vez que el estado de tu pedido se actualice.
             </p>
 
             <p style="margin-top:10px; font-size:14px;">
@@ -246,6 +245,127 @@ export class OrderEmail {
       });
     } catch (error) {
       console.error("⚠️ Error consultando admins para notificaciones de orden:", error);
+    }
+  }
+
+  // ==========================================
+  // NOTIFICACIÓN DE CAMBIO DE ESTADO (CLIENTE)
+  // ==========================================
+
+  /**
+   * Notifica al cliente cuando el estado de su orden cambia.
+   * Excluye expresamente 'awaiting_payment'.
+   */
+  static async sendStatusUpdateEmail({
+    email,
+    name,
+    orderId,
+    newStatus,
+    deliveryMethod,
+  }: {
+    email: string;
+    name?: string;
+    orderId: string;
+    newStatus: EstadoPedido;
+    deliveryMethod: 'shipping' | 'pickup';
+  }) {
+    // Nunca enviar correo de actualización si la orden está en espera de pago
+    if (newStatus === EstadoPedido.AWAITING_PAYMENT) {
+      return { success: false, message: "No se envían correos en awaiting_payment" };
+    }
+
+    try {
+      const statusDetails: Partial<
+        Record<
+          EstadoPedido,
+          { subject: string; title: string; message: string; badgeColor: string; label: string }
+        >
+      > = {
+        [EstadoPedido.PROCESSING]: {
+          subject: `Pedido #${orderId} en preparación | NEOSHOP IMPORTACIONES`,
+          title: "¡Tu pedido está en preparación!",
+          message: "Hemos recibido tu pago y nuestro equipo está alistando tus productos para el despacho.",
+          badgeColor: "#3b82f6",
+          label: "En Preparación",
+        },
+        [EstadoPedido.SHIPPED]: {
+          subject: `Pedido #${orderId} ${deliveryMethod === 'pickup' ? 'listo para retiro' : 'en camino'} | NEOSHOP IMPORTACIONES`,
+          title: deliveryMethod === 'pickup' ? "¡Tu pedido está listo para recoger!" : "¡Tu pedido va en camino!",
+          message:
+            deliveryMethod === 'pickup'
+              ? "Tu pedido ya se encuentra disponible en tienda para que puedas acercarte a retirarlo."
+              : "Tu paquete ha salido de nuestro almacén y se encuentra en ruta hacia la dirección registrada.",
+          badgeColor: "#6366f1",
+          label: deliveryMethod === 'pickup' ? "Listo para Retiro" : "Enviado",
+        },
+        [EstadoPedido.DELIVERED]: {
+          subject: `Pedido #${orderId} entregado con éxito | NEOSHOP IMPORTACIONES`,
+          title: "¡Pedido Entregado!",
+          message: "Tu pedido ha sido completado y entregado con éxito. ¡Esperamos que disfrutes de tus productos!",
+          badgeColor: "#16a34a",
+          label: "Entregado",
+        },
+        [EstadoPedido.CANCELED]: {
+          subject: `Pedido #${orderId} cancelado | NEOSHOP IMPORTACIONES`,
+          title: "Pedido Cancelado",
+          message: "Te informamos que tu pedido ha sido cancelado. Si tienes alguna duda sobre el motivo o reembolso, por favor contáctanos.",
+          badgeColor: "#ef4444",
+          label: "Cancelado",
+        },
+        [EstadoPedido.PAID_BUT_OUT_OF_STOCK]: {
+          subject: `Novedad sobre tu Pedido #${orderId} | NEOSHOP IMPORTACIONES`,
+          title: "Incidencia con el inventario",
+          message: "Tu pago fue procesado con éxito, pero uno o más artículos no cuentan con stock disponible en este momento. Nuestro equipo de soporte se pondrá en contacto contigo a la brevedad.",
+          badgeColor: "#f97316",
+          label: "Sin Stock Temporal",
+        },
+      };
+
+      const currentStatusInfo = statusDetails[newStatus];
+      if (!currentStatusInfo) {
+        return { success: false, message: "Estado sin plantilla configurada" };
+      }
+
+      const emailContent = baseEmailTemplate({
+        title: currentStatusInfo.title,
+        content: `
+          <div style="font-family:Inter,Arial,sans-serif; color:#111827; line-height:1.6;">
+            <p style="font-size:15px;">Hola ${name || "cliente"},</p>
+            <p style="font-size:15px;">
+              Hay una actualización sobre tu pedido <strong>#${orderId}</strong>:
+            </p>
+
+            <div style="margin:20px 0; padding:16px; background-color:#f9fafb; border-radius:8px; border-left:4px solid ${currentStatusInfo.badgeColor};">
+              <span style="display:inline-block; padding:4px 10px; font-size:12px; font-weight:700; text-transform:uppercase; color:#fff; background-color:${currentStatusInfo.badgeColor}; border-radius:4px; margin-bottom:8px;">
+                ${currentStatusInfo.label}
+              </span>
+              <p style="margin:8px 0 0 0; font-size:14px; color:#374151;">
+                ${currentStatusInfo.message}
+              </p>
+            </div>
+
+            <p style="margin-top:20px; font-size:14px; color:#4b5563;">
+              Puedes consultar el avance de tu orden ingresando tu número de pedido y correo en nuestra sección de tracking.
+            </p>
+
+            <p style="margin-top:16px; font-size:14px;">
+              Gracias por confiar en <strong>neoshop</strong>.
+            </p>
+          </div>
+        `,
+      });
+
+      await resend.emails.send({
+        from: "neoshop <contacto@neoshopimportaciones.com>",
+        to: email,
+        subject: currentStatusInfo.subject,
+        html: emailContent,
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error(`❌ [OrderEmail] Error enviando actualización de estado #${orderId}:`, error);
+      return { success: false, error };
     }
   }
 }

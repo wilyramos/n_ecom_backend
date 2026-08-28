@@ -173,6 +173,7 @@ export class PedidoService {
     await nuevoPedido.save();
     return { pedido: nuevoPedido, initPoint, culqiOrderId };
   }
+
   async procesarCargoCulqi(orderNumber: string, culqiTokenOrOrder: string) {
     const pedido = await Pedido.findOne({ orderNumber: orderNumber.trim() });
     if (!pedido) throw new Error('No se encontró el pedido a procesar.');
@@ -390,7 +391,8 @@ export class PedidoService {
   }
 
   /**
-   * Actualiza el estado logístico del pedido y repone el stock si la orden pagada es cancelada
+   * Actualiza el estado logístico del pedido, repone el stock si se cancela
+   * y envía el correo correspondiente al cliente (excluye awaiting_payment).
    */
   async actualizarEstadoPedido(pedidoId: string, nuevoEstado: EstadoPedido): Promise<IPedido> {
     const pedido = await Pedido.findById(pedidoId);
@@ -414,7 +416,24 @@ export class PedidoService {
       console.log(`📦 [Inventario] Stock reabastecido para la orden cancelada #${pedido.orderNumber}`);
     }
 
-    return await pedido.save();
+    const pedidoActualizado = await pedido.save();
+
+    // Disparar correo de actualización si no es awaiting_payment
+    if (nuevoEstado !== EstadoPedido.AWAITING_PAYMENT) {
+      const customerName = `${pedidoActualizado.customerProfile.nombre} ${pedidoActualizado.customerProfile.apellidos || ''}`.trim();
+
+      OrderEmail.sendStatusUpdateEmail({
+        email: pedidoActualizado.customerProfile.email,
+        name: customerName,
+        orderId: pedidoActualizado.orderNumber,
+        newStatus: nuevoEstado,
+        deliveryMethod: pedidoActualizado.deliveryMethod,
+      }).catch((err) =>
+        console.error(`⚠️ [PedidoService] Fallo enviando correo de cambio de estado a #${pedidoActualizado.orderNumber}:`, err)
+      );
+    }
+
+    return pedidoActualizado;
   }
 
   async obtenerEstadisticasPedidos(): Promise<IEstadisticasPedidos> {
@@ -467,8 +486,6 @@ export class PedidoService {
       canceladosCount: canceled,
     };
   }
-
-  // File: backend/src/modules/pedidos/pedido.service.ts
 
   /**
    * Tarea Cron: Expira y cancela órdenes en estado pendiente que superaron el tiempo de expiración

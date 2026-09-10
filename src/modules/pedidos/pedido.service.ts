@@ -174,13 +174,14 @@ export class PedidoService {
     return { pedido: nuevoPedido, initPoint, culqiOrderId };
   }
 
+
   async procesarCargoCulqi(orderNumber: string, culqiTokenOrOrder: string) {
     const pedido = await Pedido.findOne({ orderNumber: orderNumber.trim() });
     if (!pedido) throw new Error('No se encontró el pedido a procesar.');
     if (pedido.payment.status === EstadoPago.APPROVED) return { pedido, status: 'approved' };
     if (!process.env.CULQI_API_KEY) throw new Error('Configuración incompleta: CULQI_API_KEY ausente.');
 
-    // 1. Caso Cargo Directo Automático (Si el frontend envía chr_live_... generado por Culqi V4)
+    // 1. CONSULTA DIRECTA A LA API DE CULQI PARA CARGOS AUTOMÁTICOS (chr_live_...)
     if (culqiTokenOrOrder.startsWith('chr_')) {
       const fetchChargeRes = await fetch(`https://api.culqi.com/v2/charges/${culqiTokenOrOrder}`, {
         method: 'GET',
@@ -190,26 +191,30 @@ export class PedidoService {
         },
       });
       
-      if (fetchChargeRes.ok) {
-        const chargeData = await fetchChargeRes.json();
-        // Validar que realmente sea exitoso
-        if (chargeData.outcome?.type === 'venta_exitosa' && chargeData.action_code === '000') {
-          await this.confirmarPagoAprobado(pedido, chargeData.id, chargeData);
-          return { pedido, status: 'approved' };
-        } else {
-          // 🔴 ESTA ES LA CLAVE: Si Culqi arroja que el chr_ fue rechazado, cancelar el pedido en BD
-          pedido.status = EstadoPedido.CANCELED;
-          pedido.payment.status = EstadoPago.REJECTED;
-          pedido.payment.gatewayData = { ...pedido.payment.gatewayData, lastError: chargeData };
-          await pedido.save();
-          throw new Error(chargeData.user_message || 'Transacción denegada por el banco emisor.');
-        }
+      if (!fetchChargeRes.ok) {
+        throw new Error('Error al verificar la transacción con los servidores de Culqi.');
+      }
+
+      const chargeData = await fetchChargeRes.json();
+
+      // 🔴 VALIDACIÓN ZERO-TRUST: Verificamos en la respuesta oficial de Culqi
+      if (chargeData.outcome?.type === 'venta_exitosa' && chargeData.action_code === '000') {
+        await this.confirmarPagoAprobado(pedido, chargeData.id, chargeData);
+        return { pedido, status: 'approved' };
       } else {
-        throw new Error('Error al verificar la transacción con Culqi.');
+        // Si el usuario intentó inyectar un ID fallido, lo capturamos aquí
+        pedido.status = EstadoPedido.CANCELED;
+        pedido.payment.status = EstadoPago.REJECTED;
+        pedido.payment.gatewayData = { ...pedido.payment.gatewayData, lastError: chargeData };
+        await pedido.save();
+        
+        const err: any = new Error(chargeData.user_message || 'Transacción denegada por el banco emisor.');
+        err.statusCode = 400;
+        throw err;
       }
     }
 
-    // 2. Caso Orden Diferida o 3DS (ord_live_...)
+    // 2. CONSULTA DIRECTA A LA API DE CULQI PARA ÓRDENES DIFERIDAS (ord_live_...)
     if (culqiTokenOrOrder.startsWith('ord_')) {
       const fetchOrderRes = await fetch(`https://api.culqi.com/v2/orders/${culqiTokenOrOrder}`, {
         method: 'GET',
@@ -219,89 +224,89 @@ export class PedidoService {
         },
       });
 
-      if (fetchOrderRes.ok) {
-        const orderData = (await fetchOrderRes.json()) as Record<string, any>;
-        pedido.payment.gatewayData = orderData;
-
-        // Si el estado es pagado (Yape directo o 3DS autorizado)
-        if (orderData.state === 'paid') {
-           // EXTRAEMOS EL chr_live_... REAL para que se guarde correctamente
-           const chargeId = (orderData.charges && orderData.charges.length > 0) 
-                ? orderData.charges[0].id 
-                : orderData.id;
-
-          await this.confirmarPagoAprobado(pedido, chargeId, orderData);
-          return { pedido, status: 'approved' };
-        }
-
-        // Si el estado es pendiente, VERIFICAR QUE EL USUARIO REALMENTE GENERÓ CIP (PagoEfectivo)
-        if (orderData.state === 'pending' && orderData.payment_code) {
-          pedido.payment.status = EstadoPago.PENDING;
-          pedido.payment.gatewayOrderId = culqiTokenOrOrder;
-          pedido.payment.paymentCode = orderData.payment_code;
-          pedido.status = EstadoPedido.AWAITING_PAYMENT;
-          await pedido.save();
-          return { pedido, status: 'pending', paymentCode: orderData.payment_code };
-        }
-
-        // BLOQUEO CRÍTICO: Si es "pending" pero NO tiene código CIP, es porque
-        // el usuario cerró el modal tras un fallo (ej: fondos insuficientes con tarjeta).
-        // 🔴 Invalidamos el pedido para prevenir errores de consistencia
-        pedido.status = EstadoPedido.CANCELED;
-        pedido.payment.status = EstadoPago.REJECTED;
-        await pedido.save();
-        throw new Error('La transacción no fue completada o fue rechazada por el banco.');
-      } else {
-         throw new Error('No se pudo verificar la orden en la pasarela.');
+      if (!fetchOrderRes.ok) {
+        throw new Error('No se pudo verificar la orden en la pasarela.');
       }
+
+      const orderData = (await fetchOrderRes.json()) as Record<string, any>;
+      pedido.payment.gatewayData = orderData;
+
+      // 🔴 Verificación Oficial: Culqi confirma que está pagado
+      if (orderData.state === 'paid') {
+         const chargeId = (orderData.charges && orderData.charges.length > 0) 
+              ? orderData.charges[0].id 
+              : orderData.id;
+
+        await this.confirmarPagoAprobado(pedido, chargeId, orderData);
+        return { pedido, status: 'approved' };
+      }
+
+      // Verificación Oficial: Culqi confirma que es un CIP válido pendiente
+      if (orderData.state === 'pending' && orderData.payment_code) {
+        pedido.payment.status = EstadoPago.PENDING;
+        pedido.payment.gatewayOrderId = culqiTokenOrOrder;
+        pedido.payment.paymentCode = orderData.payment_code;
+        pedido.status = EstadoPedido.AWAITING_PAYMENT;
+        await pedido.save();
+        return { pedido, status: 'pending', paymentCode: orderData.payment_code };
+      }
+
+      // Si Culqi dice que está expirado, borrado, o es un error disfrazado
+      pedido.status = EstadoPedido.CANCELED;
+      pedido.payment.status = EstadoPago.REJECTED;
+      
+      let userMessage = 'La transacción fue rechazada por el banco emisor. Por favor, intenta de nuevo.';
+      if (orderData.charges && orderData.charges.length > 0) {
+         userMessage = orderData.charges[0].user_message || userMessage;
+      }
+      
+      await pedido.save();
+      const err: any = new Error(userMessage);
+      err.statusCode = 400;
+      throw err;
     }
 
-    // 3. Caso Token de Tarjeta (tkn_live_...) -> Procedemos a cobrarlo manualmente
+    // 3. GENERACIÓN DE CARGO VÍA TOKEN (tkn_live_...)
     const amountInCents = Math.round(pedido.totalPrice * 100);
-    const culqiPayload = {
-      amount: amountInCents,
-      currency_code: pedido.currency || 'PEN',
-      email: pedido.customerProfile.email,
-      source_id: culqiTokenOrOrder,
-      antifraud_details: {
-        first_name: pedido.customerProfile.nombre,
-        last_name: pedido.customerProfile.apellidos,
-        phone_number: pedido.customerProfile.telefono,
-      },
-      metadata: { orderNumber: pedido.orderNumber },
-    };
-
     const culqiResponse = await fetch('https://api.culqi.com/v2/charges', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.CULQI_API_KEY}`,
       },
-      body: JSON.stringify(culqiPayload),
+      body: JSON.stringify({
+        amount: amountInCents,
+        currency_code: pedido.currency || 'PEN',
+        email: pedido.customerProfile.email,
+        source_id: culqiTokenOrOrder,
+        antifraud_details: {
+          first_name: pedido.customerProfile.nombre,
+          last_name: pedido.customerProfile.apellidos,
+          phone_number: pedido.customerProfile.telefono,
+        },
+        metadata: { orderNumber: pedido.orderNumber },
+      }),
     });
 
     const culqiData = (await culqiResponse.json()) as Record<string, any>;
 
-    // 🔴 Validamos estrictamente que diga "venta_exitosa" o que la llamada sea 200 OK
+    // 🔴 Verificamos la respuesta directa de la creación del cargo
     if (!culqiResponse.ok || (culqiData.outcome && culqiData.outcome.type !== 'venta_exitosa')) {
-      // Registrar falla en BD
       pedido.status = EstadoPedido.CANCELED;
       pedido.payment.status = EstadoPago.REJECTED;
       pedido.payment.gatewayData = { ...pedido.payment.gatewayData, lastError: culqiData };
       await pedido.save();
       
-      const errorMessage = culqiData.user_message || culqiData.merchant_message || 'Transacción denegada por el banco emisor. Intenta con otra tarjeta.';
-      
+      const errorMessage = culqiData.user_message || 'Transacción denegada por el banco emisor. Intenta con otra tarjeta.';
       const error: any = new Error(errorMessage);
       error.statusCode = 400; 
       throw error;
     }
 
-    // VENTA EXITOSA
-    await this.confirmarPagoAprobado(pedido, culqiData.id, culqiData); // Aquí se guarda el chr_live...
+    await this.confirmarPagoAprobado(pedido, culqiData.id, culqiData);
     return { pedido, status: 'approved' };
   }
-
+  
   async obtenerMisPedidosCliente(userId: string, email: string): Promise<IPedido[]> {
     const cleanEmail = email.trim().toLowerCase();
 

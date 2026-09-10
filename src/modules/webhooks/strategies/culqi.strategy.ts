@@ -1,5 +1,3 @@
-// File: backend/src/modules/webhooks/strategies/culqi.strategy.ts
-
 import { IPaymentStrategy } from './payment.strategy.interface';
 import Pedido, { EstadoPago, EstadoPedido } from '../../pedidos/pedido.model';
 import { PedidoService } from '../../pedidos/pedido.service';
@@ -13,6 +11,7 @@ interface CulqiEventData {
     orderNumber?: string;
     pedidoId?: string;
   };
+  charges?: Array<{ id: string }>;
   [key: string]: unknown;
 }
 
@@ -96,7 +95,13 @@ export class CulqiStrategy implements IPaymentStrategy {
       if (eventType === 'order.state.changed' || eventType === 'order.status.changed') {
         if (data.state === 'paid') {
           console.log(`🚀 [Culqi Webhook] Orden #${pedido.orderNumber} pagada (Pago Diferido).`);
-          await this.pedidoService.confirmarPagoAprobado(pedido, data.id, data);
+          
+          // 🔴 EXTRAEMOS EL chr_live_... SI EXISTE (El cargo real vinculado a la orden diferida)
+          const chargeId = (data.charges && data.charges.length > 0) 
+            ? data.charges[0].id 
+            : data.id;
+
+          await this.pedidoService.confirmarPagoAprobado(pedido, chargeId, data);
           return true;
         } else if (data.state === 'expired' || data.state === 'deleted') {
           console.log(`❌ [Culqi Webhook] Orden #${pedido.orderNumber} expirada.`);

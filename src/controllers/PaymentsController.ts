@@ -148,9 +148,9 @@ export class PaymentsController {
                     }).catch(err => console.error('⚠️ Error enviando email de confirmación cliente:', err));
                 }
 
-                OrderEmail.notifyAdminsOnNewOrder(dbOrder).catch(err => 
-                    console.error('⚠️ Error enviando notificación a admins:', err)
-                );
+                // OrderEmail.notifyAdminsOnNewOrder(dbOrder).catch(err => 
+                //     console.error('⚠️ Error enviando notificación a admins:', err)
+                // );
 
                 res.status(200).json({ status: "success", message: "Pago procesado exitosamente", data });
                 return;
@@ -243,9 +243,9 @@ export class PaymentsController {
                 session.endSession();
 
                 // Notificar a admins incluso cuando no hay stock
-                OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
-                    console.error('⚠️ Error notificando admins (sin stock):', err)
-                );
+                // OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                //     console.error('⚠️ Error notificando admins (sin stock):', err)
+                // );
 
                 res.status(200).json({ message: 'Pago capturado, pero sin stock disponible' });
                 return;
@@ -272,9 +272,9 @@ export class PaymentsController {
             }
 
             // Notificación a administradores
-            OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
-                console.error('⚠️ Error notificando admins por correo:', err)
-            );
+            // OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+            //     console.error('⚠️ Error notificando admins por correo:', err)
+            // );
 
             res.status(200).json({ message: 'Orden completada exitosamente' });
             return;
@@ -347,9 +347,9 @@ export class PaymentsController {
                 session.endSession();
 
                 // Notificar a admins incluso cuando no hay stock
-                OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
-                    console.error('⚠️ Error notificando admins (sin stock):', err)
-                );
+                // OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                //     console.error('⚠️ Error notificando admins (sin stock):', err)
+                // );
 
                 res.status(200).json({ message: 'Pago capturado con éxito, pero sin stock físico disponible.' });
                 return;
@@ -376,9 +376,9 @@ export class PaymentsController {
             }
 
             // Notificación a administradores
-            OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
-                console.error('⚠️ [Webhook Cargo] Error notificando admins:', err)
-            );
+            // OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+            //     console.error('⚠️ [Webhook Cargo] Error notificando admins:', err)
+            // );
 
             res.status(200).json({ message: 'Cargo de tarjeta procesado e inventario actualizado con éxito.' });
             return;

@@ -11,6 +11,7 @@ interface CulqiEventData {
   charge_id?: string;
   metadata?: {
     orderNumber?: string;
+    pedidoId?: string;
   };
   [key: string]: unknown;
 }
@@ -32,6 +33,7 @@ export class CulqiStrategy implements IPaymentStrategy {
       const eventType = String(payload.type);
       let rawData = payload.data;
 
+      // Culqi a veces envía el objeto 'data' serializado como string
       if (typeof rawData === 'string') {
         try {
           rawData = JSON.parse(rawData);
@@ -67,11 +69,11 @@ export class CulqiStrategy implements IPaymentStrategy {
       // 1. Manejo de Reembolsos (Panel Culqi o API)
       if (eventType === 'refund.creation.succeeded') {
         if (pedido.status !== EstadoPedido.CANCELED) {
-          console.log(`🔄 [Culqi Webhook] Procesando reembolso para el pedido ${pedido.orderNumber}`);
+          console.log(`🔄 [Culqi Webhook] Procesando reembolso para el pedido #${pedido.orderNumber}`);
           
           // Ejecuta la transición a CANCELED, lo cual gatilla la reposición de stock en PedidoService
           await this.pedidoService.actualizarEstadoPedido(pedido._id.toString(), EstadoPedido.CANCELED);
-          pedido.payment.status = EstadoPago.REJECTED; 
+          pedido.payment.status = EstadoPago.REFUNDED; 
           
           pedido.payment.gatewayData = {
             ...(pedido.payment.gatewayData || {}),
@@ -91,24 +93,35 @@ export class CulqiStrategy implements IPaymentStrategy {
       }
 
       // 2. Pagos diferidos (PagoEfectivo, Cuotéalo, QR)
-      if (eventType === 'order.status.changed') {
+      if (eventType === 'order.state.changed' || eventType === 'order.status.changed') {
         if (data.state === 'paid') {
+          console.log(`🚀 [Culqi Webhook] Orden #${pedido.orderNumber} pagada (Pago Diferido).`);
           await this.pedidoService.confirmarPagoAprobado(pedido, data.id, data);
           return true;
-        } else if (data.state === 'expired') {
+        } else if (data.state === 'expired' || data.state === 'deleted') {
+          console.log(`❌ [Culqi Webhook] Orden #${pedido.orderNumber} expirada.`);
           await this.pedidoService.actualizarEstadoPedido(pedido._id.toString(), EstadoPedido.CANCELED);
           pedido.payment.status = EstadoPago.REJECTED;
           await pedido.save();
           return true;
         }
       } 
-      // 3. Cargos directos (Tarjetas, Yape token directo)
+      // 3. Cargos directos asíncronos (Tarjetas, Yape token directo)
       else if (eventType === 'charge.creation.succeeded') {
+        console.log(`🚀 [Culqi Webhook] Cargo exitoso para orden #${pedido.orderNumber}.`);
         await this.pedidoService.confirmarPagoAprobado(pedido, data.id, data);
         return true;
       } else if (eventType === 'charge.creation.failed') {
+        console.log(`❌ [Culqi Webhook] Cargo fallido para orden #${pedido.orderNumber}.`);
+        // Asegura que el estado se invalida vía API cuando falla asíncronamente
         await this.pedidoService.actualizarEstadoPedido(pedido._id.toString(), EstadoPedido.CANCELED);
         pedido.payment.status = EstadoPago.REJECTED;
+        
+        // Registrar motivo exacto del fallo para auditoría
+        pedido.payment.gatewayData = {
+          ...(pedido.payment.gatewayData || {}),
+          failure_reason: data
+        };
         await pedido.save();
         return true;
       }

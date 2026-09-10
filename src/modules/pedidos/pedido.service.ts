@@ -242,8 +242,15 @@ export class PedidoService {
 
     if (!culqiResponse.ok) {
       pedido.payment.status = EstadoPago.REJECTED;
+      // Almacenar el registro del fallo para auditoría
+      pedido.payment.gatewayData = { ...pedido.payment.gatewayData, lastError: culqiData };
       await pedido.save();
-      throw new Error(culqiData.user_message || culqiData.merchant_message || 'Transacción denegada por el banco emisor.');
+
+      // Extraer el mensaje amigable ("user_message") emitido por el procesador del banco
+      const errorMessage = culqiData.user_message || 'Transacción denegada por el banco emisor. Intenta con otra tarjeta.';
+      const error: any = new Error(errorMessage);
+      error.statusCode = 400; // Indicar rechazo procesado correctamente
+      throw error;
     }
 
     await this.confirmarPagoAprobado(pedido, culqiData.id, culqiData);

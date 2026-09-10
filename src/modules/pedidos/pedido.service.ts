@@ -180,7 +180,7 @@ export class PedidoService {
     if (pedido.payment.status === EstadoPago.APPROVED) return { pedido, status: 'approved' };
     if (!process.env.CULQI_API_KEY) throw new Error('Configuración incompleta: CULQI_API_KEY ausente.');
 
-    // 1. Caso Cargo Directo (Si el frontend envía chr_live_... generado automáticamente por Culqi V4)
+    // 1. Caso Cargo Directo Automático (Si el frontend envía chr_live_... generado por Culqi V4)
     if (culqiTokenOrOrder.startsWith('chr_')) {
       const fetchChargeRes = await fetch(`https://api.culqi.com/v2/charges/${culqiTokenOrOrder}`, {
         method: 'GET',
@@ -197,6 +197,8 @@ export class PedidoService {
           await this.confirmarPagoAprobado(pedido, chargeData.id, chargeData);
           return { pedido, status: 'approved' };
         } else {
+          // 🔴 ESTA ES LA CLAVE: Si Culqi arroja que el chr_ fue rechazado, cancelar el pedido en BD
+          pedido.status = EstadoPedido.CANCELED;
           pedido.payment.status = EstadoPago.REJECTED;
           pedido.payment.gatewayData = { ...pedido.payment.gatewayData, lastError: chargeData };
           await pedido.save();
@@ -223,7 +225,7 @@ export class PedidoService {
 
         // Si el estado es pagado (Yape directo o 3DS autorizado)
         if (orderData.state === 'paid') {
-           // 🔴 EXTRAEMOS EL chr_live_... REAL para que se guarde correctamente
+           // EXTRAEMOS EL chr_live_... REAL para que se guarde correctamente
            const chargeId = (orderData.charges && orderData.charges.length > 0) 
                 ? orderData.charges[0].id 
                 : orderData.id;
@@ -242,9 +244,13 @@ export class PedidoService {
           return { pedido, status: 'pending', paymentCode: orderData.payment_code };
         }
 
-        // 🔴 BLOQUEO CRÍTICO: Si es "pending" pero NO tiene código CIP, es porque
+        // BLOQUEO CRÍTICO: Si es "pending" pero NO tiene código CIP, es porque
         // el usuario cerró el modal tras un fallo (ej: fondos insuficientes con tarjeta).
-        throw new Error('La transacción no fue completada o fue rechazada. Por favor, intenta de nuevo.');
+        // 🔴 Invalidamos el pedido para prevenir errores de consistencia
+        pedido.status = EstadoPedido.CANCELED;
+        pedido.payment.status = EstadoPago.REJECTED;
+        await pedido.save();
+        throw new Error('La transacción no fue completada o fue rechazada por el banco.');
       } else {
          throw new Error('No se pudo verificar la orden en la pasarela.');
       }
@@ -276,8 +282,10 @@ export class PedidoService {
 
     const culqiData = (await culqiResponse.json()) as Record<string, any>;
 
-    // 🔴 Validamos estrictamente que diga "venta_exitosa"
+    // 🔴 Validamos estrictamente que diga "venta_exitosa" o que la llamada sea 200 OK
     if (!culqiResponse.ok || (culqiData.outcome && culqiData.outcome.type !== 'venta_exitosa')) {
+      // Registrar falla en BD
+      pedido.status = EstadoPedido.CANCELED;
       pedido.payment.status = EstadoPago.REJECTED;
       pedido.payment.gatewayData = { ...pedido.payment.gatewayData, lastError: culqiData };
       await pedido.save();

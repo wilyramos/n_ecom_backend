@@ -64,7 +64,8 @@ export interface IHistorialEstado {
 export interface IPedidoQueryParams {
   page?: number;
   limit?: number;
-  status?: EstadoPedido | string;
+  status?: EstadoPedido | 'all' | string;
+  paymentStatus?: EstadoPago | 'all' | string;
   userId?: string;
   paymentProvider?: string;
   deliveryMethod?: string;

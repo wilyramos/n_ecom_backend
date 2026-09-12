@@ -434,12 +434,23 @@ export class PedidoService {
     const page = Number(params.page) || 1;
     const limit = Number(params.limit) || 10;
     const skip = (page - 1) * limit;
-
     const filtro: FilterQuery<IPedido> = {};
-    if (params.status) filtro.status = params.status;
+
+    if (
+      params.status &&
+      params.status !== 'all' &&
+      Object.values(EstadoPedido).includes(params.status as EstadoPedido)
+    ) {
+      filtro.status = params.status as EstadoPedido;
+    }
+
+    if (params.paymentStatus && params.paymentStatus !== 'all') {
+      filtro['payment.status'] = params.paymentStatus;
+    }
+
     if (params.userId) filtro.user = new Types.ObjectId(params.userId);
-    if (params.paymentProvider) filtro['payment.provider'] = params.paymentProvider;
-    if (params.deliveryMethod) filtro.deliveryMethod = params.deliveryMethod;
+    if (params.paymentProvider && params.paymentProvider !== 'all') filtro['payment.provider'] = params.paymentProvider;
+    if (params.deliveryMethod && params.deliveryMethod !== 'all') filtro.deliveryMethod = params.deliveryMethod;
 
     if (params.search) {
       filtro.$or = [
@@ -467,52 +478,18 @@ export class PedidoService {
     return { data, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
 
-  async actualizarEstadoPedido(pedidoId: string, nuevoEstado: EstadoPedido): Promise<IPedido> {
-    const pedido = await Pedido.findById(pedidoId);
-    if (!pedido) throw new Error('Pedido no encontrado');
-
-    const estadoAnterior = pedido.status;
-    const pagoAprobadoPrevio = pedido.payment.status === EstadoPago.APPROVED;
-
-    if (estadoAnterior === nuevoEstado) return pedido;
-
-    pedido.status = nuevoEstado;
-    pedido.statusHistory.push({ status: nuevoEstado, changedAt: new Date() });
-
-    if (
-      pagoAprobadoPrevio &&
-      nuevoEstado === EstadoPedido.CANCELED &&
-      estadoAnterior !== EstadoPedido.CANCELED
-    ) {
-      await InventoryService.reponerStockItems(pedido.items);
-      console.log(`📦 [Inventario] Stock reabastecido para la orden cancelada #${pedido.orderNumber}`);
-    }
-
-    const pedidoActualizado = await pedido.save();
-
-    if (nuevoEstado !== EstadoPedido.AWAITING_PAYMENT) {
-      const customerName = `${pedidoActualizado.customerProfile.nombre} ${pedidoActualizado.customerProfile.apellidos || ''}`.trim();
-
-      OrderEmail.sendStatusUpdateEmail({
-        email: pedidoActualizado.customerProfile.email,
-        name: customerName,
-        orderId: pedidoActualizado.orderNumber,
-        newStatus: nuevoEstado,
-        deliveryMethod: pedidoActualizado.deliveryMethod,
-      }).catch((err) =>
-        console.error(`⚠️ [PedidoService] Fallo enviando correo de cambio de estado a #${pedidoActualizado.orderNumber}:`, err)
-      );
-    }
-
-    return pedidoActualizado;
-  }
-
   async obtenerEstadisticasPedidos(): Promise<IEstadisticasPedidos> {
     const result = await Pedido.aggregate<StatsAggregationResult>([
       {
         $facet: {
           ventasAprobadas: [
-            { $match: { 'payment.status': EstadoPago.APPROVED } },
+            {
+              // 👈 Excluye canceladas y exige pago aprobado estrictamente
+              $match: {
+                'payment.status': EstadoPago.APPROVED,
+                status: { $ne: EstadoPedido.CANCELED },
+              },
+            },
             {
               $group: {
                 _id: null,
@@ -557,6 +534,47 @@ export class PedidoService {
       canceladosCount: canceled,
     };
   }
+
+  async actualizarEstadoPedido(pedidoId: string, nuevoEstado: EstadoPedido): Promise<IPedido> {
+    const pedido = await Pedido.findById(pedidoId);
+    if (!pedido) throw new Error('Pedido no encontrado');
+
+    const estadoAnterior = pedido.status;
+    const pagoAprobadoPrevio = pedido.payment.status === EstadoPago.APPROVED;
+
+    if (estadoAnterior === nuevoEstado) return pedido;
+
+    pedido.status = nuevoEstado;
+    pedido.statusHistory.push({ status: nuevoEstado, changedAt: new Date() });
+
+    if (
+      pagoAprobadoPrevio &&
+      nuevoEstado === EstadoPedido.CANCELED &&
+      estadoAnterior !== EstadoPedido.CANCELED
+    ) {
+      await InventoryService.reponerStockItems(pedido.items);
+      console.log(`📦 [Inventario] Stock reabastecido para la orden cancelada #${pedido.orderNumber}`);
+    }
+
+    const pedidoActualizado = await pedido.save();
+
+    if (nuevoEstado !== EstadoPedido.AWAITING_PAYMENT) {
+      const customerName = `${pedidoActualizado.customerProfile.nombre} ${pedidoActualizado.customerProfile.apellidos || ''}`.trim();
+
+      OrderEmail.sendStatusUpdateEmail({
+        email: pedidoActualizado.customerProfile.email,
+        name: customerName,
+        orderId: pedidoActualizado.orderNumber,
+        newStatus: nuevoEstado,
+        deliveryMethod: pedidoActualizado.deliveryMethod,
+      }).catch((err) =>
+        console.error(`⚠️ [PedidoService] Fallo enviando correo de cambio de estado a #${pedidoActualizado.orderNumber}:`, err)
+      );
+    }
+
+    return pedidoActualizado;
+  }
+
 
   async expirarOrdenesPendientesPowerpay(): Promise<number> {
     const TOLERANCIA_MINUTOS = 10;

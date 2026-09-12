@@ -87,12 +87,13 @@ procesarCargoCulqi = async (req: Request, res: Response, next: NextFunction): Pr
 
   obtenerPedidos = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { page, limit, status, userId, paymentProvider, deliveryMethod, dateFrom, dateTo, search } = req.query;
+      const { page, limit, status, paymentStatus, userId, paymentProvider, deliveryMethod, dateFrom, dateTo, search } = req.query;
 
       const resultado = await this.pedidoService.obtenerPedidos({
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
         status: status as EstadoPedido,
+        paymentStatus: paymentStatus as string, // 👈 nuevo
         userId: userId as string,
         paymentProvider: paymentProvider as string,
         deliveryMethod: deliveryMethod as string,

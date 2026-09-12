@@ -29,7 +29,6 @@ export class CulqiGatewayService implements IPaymentGatewayService {
         
         console.log(`⚙️ [Culqi Gateway] Teléfono sanitizado: ${finalPhone}`);
 
-        // Eliminamos "confirm: false", dejamos el payload puramente estandarizado a Culqi
         const culqiOrderPayload = {
             amount: Math.round(pedido.totalPrice * 100),
             currency_code: data.currency || 'PEN',
@@ -42,6 +41,12 @@ export class CulqiGatewayService implements IPaymentGatewayService {
                 phone_number: finalPhone,
             },
             expiration_date: Math.floor(Date.now() / 1000) + (24 * 60 * 60),
+            
+            // 🔴 RESTAURADO: ESTA LÍNEA ES CRÍTICA PARA PAGOEFECTIVO / QR EN CULQI V4.
+            // Le dice a Culqi que deje la orden "abierta" para que el modal del frontend
+            // pueda adjuntarle el código CIP de PagoEfectivo sin lanzar un error 400.
+            confirm: false,
+            
             metadata: {
                 pedidoId: pedido._id.toString(),
                 userId: userId || 'guest'

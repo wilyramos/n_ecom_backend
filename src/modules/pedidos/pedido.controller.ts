@@ -24,21 +24,25 @@ export class PedidoController {
     }
   };
 
-  procesarCargoCulqi = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+procesarCargoCulqi = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { orderNumber, culqiToken } = req.body;
-      const resultado = await this.pedidoService.procesarCargoCulqi(orderNumber, culqiToken);
+      // Extraemos los parameters3DS si existen
+      const { orderNumber, culqiToken, parameters3DS } = req.body;
+      const resultado = await this.pedidoService.procesarCargoCulqi(orderNumber, culqiToken, parameters3DS);
 
       res.status(200).json({
         success: true,
         message: 'Pago con Culqi procesado exitosamente',
         data: resultado,
       });
-    } catch (error) {
-      next(error);
+    } catch (error: any) {
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({
+        success: false,
+        message: error.message || 'Error interno al procesar el pago'
+      });
     }
   };
-
   obtenerPedidoPorId = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;

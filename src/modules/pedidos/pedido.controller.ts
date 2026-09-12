@@ -127,7 +127,7 @@ procesarCargoCulqi = async (req: Request, res: Response, next: NextFunction): Pr
     }
   };
 
-  obtenerPedidoPorNumero = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+ obtenerPedidoPorNumero = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { orderNumber } = req.params;
       const emailOrDoc = req.query.emailOrDoc as string | undefined;
@@ -143,8 +143,12 @@ procesarCargoCulqi = async (req: Request, res: Response, next: NextFunction): Pr
         success: true,
         data: pedido,
       });
-    } catch (error) {
-      next(error);
+    } catch (error: any) {
+      const statusCode = error.statusCode || 404;
+      res.status(statusCode).json({
+        success: false,
+        message: error.message || 'No se encontró el pedido solicitado',
+      });
     }
   };
 

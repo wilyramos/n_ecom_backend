@@ -1,5 +1,3 @@
-// File: src/server.ts
-
 import express from 'express'
 import morgan from 'morgan'
 import connectDB from './config/db'
@@ -42,6 +40,9 @@ import ticketRouter from './modules/ticket/ticket.routes'
 import setupSwagger from './config/swagger.config'
 import collectionRouter from './modules/collection/collection.router'
 
+// Importar CronService
+import { CronService } from './services/cron.service'
+
 dotenv.config()
 
 const app = express()
@@ -50,6 +51,9 @@ const app = express()
 app.set('trust proxy', true)
 
 connectDB()
+
+// Inicializar las tareas programadas (Cron)
+CronService.init()
 
 app.use(morgan('dev'))
 app.use(express.json())

@@ -1,32 +1,46 @@
-// File: backend/src/services/cron.service.ts
-
 import cron from 'node-cron';
 import { PedidoService } from '../modules/pedidos/pedido.service';
 
 export class CronService {
   private static pedidoService = new PedidoService();
-  private static isRunning = false;
+  private static isRunningPowerpay = false;
+  private static isRunningGlobal = false;
 
   static init(): void {
     console.log('⏰ [Cron Service] Inicializando tareas programadas...');
 
-    // Ejecutar cada 30 minutos en el minuto 0 y 30 ('*/30 * * * *')
+    // 1. Cron de Powerpay: Ejecutar cada 30 minutos (0 y 30)
     cron.schedule('*/30 * * * *', async () => {
-      if (CronService.isRunning) {
-        console.warn('⚠️ [Cron Service] La tarea anterior aún está en ejecución. Omitiendo ciclo.');
-        return;
-      }
-
-      CronService.isRunning = true;
+      if (CronService.isRunningPowerpay) return;
+      CronService.isRunningPowerpay = true;
       try {
         await CronService.pedidoService.expirarOrdenesPendientesPowerpay();
       } catch (error) {
-        console.error('💥 [Cron Error] Fallo al procesar la expiración de órdenes:', error);
+        console.error('💥 [Cron Error] Fallo al expirar órdenes de Powerpay:', error);
       } finally {
-        CronService.isRunning = false;
+        CronService.isRunningPowerpay = false;
       }
     });
 
-    console.log('✅ [Cron Service] Tarea de expiración Powerpay configurada cada 30 minutos.');
+    // 2. Cron Global (24h): Ejecutar todos los días a las 3:00 AM (Hora Perú GMT-5)
+    cron.schedule('0 3 * * *', async () => {
+      if (CronService.isRunningGlobal) {
+        console.warn('⚠️ [Cron Service] La limpieza global de 24h ya está en ejecución.');
+        return;
+      }
+      CronService.isRunningGlobal = true;
+      try {
+        console.log('🧹 [Cron Service] Iniciando limpieza nocturna de órdenes expiradas (>24h)...');
+        await CronService.pedidoService.expirarOrdenesPendientesGlobal();
+      } catch (error) {
+        console.error('💥 [Cron Error] Fallo al expirar órdenes globales de 24h:', error);
+      } finally {
+        CronService.isRunningGlobal = false;
+      }
+    }, {
+      timezone: "America/Lima" // Se eliminó scheduled: true para respetar el tipado estricto
+    });
+
+    console.log('✅ [Cron Service] Cron Powerpay (30min) y Cron Global (03:00 AM Perú) configurados.');
   }
 }

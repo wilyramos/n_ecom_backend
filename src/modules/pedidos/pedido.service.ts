@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import { PaymentGatewayFactory } from './gateways/payment-gateway.factory';
 import { OrderEmail } from '../../emails/OrderEmailResend';
 import { InventoryService } from '../inventory/inventory.service';
+import { AppError } from '../../utils/AppError';
 
 const MP_SURCHARGE_RATE = 0.12;
 
@@ -362,7 +363,7 @@ export class PedidoService {
 
     const pedido = await Pedido.findOne(filtro).populate('user', 'nombre email');
     if (!pedido) {
-      throw Object.assign(new Error('Pedido no encontrado o no autorizado.'), { statusCode: 404 });
+      throw new AppError(`No se encontró el pedido: ${pedidoId}`, 404);
     }
     return pedido;
   }
@@ -412,7 +413,7 @@ export class PedidoService {
     }).select('-payment.gatewayData');
 
     if (!pedido) {
-      throw Object.assign(new Error('No se encontró el pedido con los datos proporcionados.'), { statusCode: 404 });
+      throw new AppError('No se encontró el pedido con los datos proporcionados.', 404);
     }
     return pedido;
   }
@@ -586,6 +587,43 @@ export class PedidoService {
 
       await pedido.save();
       console.log(`❌ [Powerpay Cron] Pedido #${pedido.orderNumber} marcado como CANCELED (Expirado).`);
+    }
+
+    return pedidosAExpirar.length;
+  }
+
+  // NUEVO MÉTODO PARA CANCELAR PEDIDOS DE 24 HORAS
+  async expirarOrdenesPendientesGlobal(): Promise<number> {
+    const LIMITE_EXPIRACION_MS = 24 * 60 * 60 * 1000; // 24 horas exactas en milisegundos
+    const fechaCorte = new Date(Date.now() - LIMITE_EXPIRACION_MS);
+
+    // Buscamos TODOS los pedidos que sigan esperando pago y fueron creados ANTES de la fecha de corte
+    const pedidosAExpirar = await Pedido.find({
+      status: EstadoPedido.AWAITING_PAYMENT,
+      'payment.status': EstadoPago.PENDING,
+      createdAt: { $lte: fechaCorte },
+    });
+
+    if (pedidosAExpirar.length === 0) {
+      return 0;
+    }
+
+    console.log(`⏱️ [Global Cron] Expirando ${pedidosAExpirar.length} orden(es) pendiente(s) mayor(es) a 24h...`);
+
+    for (const pedido of pedidosAExpirar) {
+      pedido.status = EstadoPedido.CANCELED;
+      pedido.payment.status = EstadoPago.REJECTED;
+      pedido.statusHistory.push({
+        status: EstadoPedido.CANCELED,
+        changedAt: new Date(),
+      });
+
+      await pedido.save();
+
+      // Liberamos el inventario de nuevo al stock disponible
+      await InventoryService.reponerStockItems(pedido.items);
+
+      console.log(`❌ [Global Cron] Pedido #${pedido.orderNumber} marcado como CANCELED (Expirado por 24h). Stock repuesto.`);
     }
 
     return pedidosAExpirar.length;

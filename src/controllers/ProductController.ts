@@ -1947,7 +1947,8 @@ export class ProductController {
             // =================================================================
 
             // A. ETAPA $SEARCH (Atlas Search)
-            if (query && query.trim() !== "") {
+            const hasQuery = Boolean(query && query.trim() !== "");
+            if (hasQuery) {
                 pipeline.push({
                     $search: {
                         index: "ecommerce_search_products",
@@ -2010,20 +2011,22 @@ export class ProductController {
             // =================================================================
             // FASE 2: CAMPOS CALCULADOS PARA ORDENAMIENTO
             // =================================================================
-            pipeline.push({
-                $addFields: {
-                    // Cálculo de descuento absoluto para el sort 'discount'
-                    discountAmount: {
-                        $cond: [
-                            { $and: [{ $gt: ["$precioComparativo", 0] }, { $gt: ["$precioComparativo", "$precio"] }] },
-                            { $subtract: ["$precioComparativo", "$precio"] },
-                            0
-                        ]
-                    },
-                    // Mantenemos el score de búsqueda si existe
-                    searchScore: { $meta: "searchScore" }
+            const addFieldsStage: any = {
+                discountAmount: {
+                    $cond: [
+                        { $and: [{ $gt: ["$precioComparativo", 0] }, { $gt: ["$precioComparativo", "$precio"] }] },
+                        { $subtract: ["$precioComparativo", "$precio"] },
+                        0
+                    ]
                 }
-            });
+            };
+
+            // $meta: "searchScore" solo es admisible si se ejecutó $search previamente
+            if (hasQuery) {
+                addFieldsStage.searchScore = { $meta: "searchScore" };
+            }
+
+            pipeline.push({ $addFields: addFieldsStage });
 
             // =================================================================
             // FASE 3: DEFINICIÓN DE LÓGICA DE ORDENAMIENTO
@@ -2032,34 +2035,40 @@ export class ProductController {
 
             switch (sort) {
                 case 'relevancia':
-                    // Si hay query usa score, si no, usa destacados
-                    sortStage = query ? { searchScore: -1 } : { esDestacado: -1, createdAt: -1 };
+                case 'relevance':
+                    sortStage = hasQuery
+                        ? { searchScore: -1, _id: -1 }
+                        : { esDestacado: -1, createdAt: -1, _id: -1 };
                     break;
+
                 case 'recientes':
-                    sortStage = { createdAt: -1 };
+                case 'newest':
+                    sortStage = { createdAt: -1, _id: -1 };
                     break;
-                case 'rating':
-                    sortStage = { rating: -1, numReviews: -1 };
-                    break;
+
                 case 'discount':
-                    sortStage = { discountAmount: -1 };
+                    sortStage = { discountAmount: -1, createdAt: -1, _id: -1 };
                     break;
+
                 case 'price-asc':
-                    sortStage = { precio: 1 };
+                case 'price_asc':
+                    sortStage = { precio: 1, _id: -1 };
                     break;
+
                 case 'price-desc':
-                    sortStage = { precio: -1 };
+                case 'price_desc':
+                    sortStage = { precio: -1, _id: -1 };
                     break;
+
                 case 'name-asc':
-                    sortStage = { nombre: 1 };
+                    sortStage = { nombre: 1, _id: -1 };
                     break;
+
                 default:
-                    // Orden por defecto: Destacados y luego más recientes
-                    sortStage = { esDestacado: -1, createdAt: -1 };
+                    sortStage = { esDestacado: -1, createdAt: -1, _id: -1 };
             }
 
             pipeline.push({
-
                 $facet: {
                     products: [
                         { $sort: sortStage },
@@ -2117,9 +2126,7 @@ export class ProductController {
                             }
                         },
                         { $unwind: "$allAttrs" },
-                        // Agrupamos por Key y Value para contar las ocurrencias exactas
                         { $group: { _id: { k: "$allAttrs.k", v: "$allAttrs.v" }, count: { $sum: 1 } } },
-                        // Volvemos a agrupar solo por Key para reconstruir el array
                         { $group: { _id: "$_id.k", values: { $push: { value: "$_id.v", count: "$count" } } } },
                         { $project: { name: "$_id", values: 1, _id: 0 } }
                     ],
@@ -2130,11 +2137,11 @@ export class ProductController {
             });
 
             const result = await Product.aggregate(pipeline);
-            const data = result[0];
-            const totalProducts = data.totalCount[0]?.count || 0;
+            const data = result[0] || {};
+            const totalProducts = Number(data.totalCount?.[0]?.count) || 0;
 
             res.status(200).json({
-                products: data.products,
+                products: data.products || [],
                 pagination: {
                     currentPage: pageNum,
                     totalPages: Math.ceil(totalProducts / limitNum) || 1,

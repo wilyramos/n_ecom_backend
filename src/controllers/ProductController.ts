@@ -1930,7 +1930,10 @@ export class ProductController {
 
     static async getCatalogBySlugs(req: Request, res: Response) {
         try {
-            const { slugs, page, limit, sort, priceRange, query, ...attributeFilters } = req.query as any;
+            const { slugs, page, limit, sort, priceRange, query, search, ...attributeFilters } = req.query as any;
+
+            // Soporta tanto 'query' como 'search' para evitar que se interprete como atributo dinámico
+            const searchTerm = (query || search || "").trim();
 
             const pageNum = Math.max(1, parseInt(page || "1", 10));
             const limitNum = Math.max(1, parseInt(limit || "24", 10));
@@ -1947,16 +1950,15 @@ export class ProductController {
             // =================================================================
 
             // A. ETAPA $SEARCH (Atlas Search)
-            const hasQuery = Boolean(query && query.trim() !== "");
-            if (hasQuery) {
+            if (searchTerm !== "") {
                 pipeline.push({
                     $search: {
                         index: "ecommerce_search_products",
                         compound: {
                             should: [
-                                { text: { query: query, path: "nombre", score: { boost: { value: 3 } }, fuzzy: { maxEdits: 1 } } },
-                                { text: { query: query, path: "variants.nombre", score: { boost: { value: 2 } }, fuzzy: { maxEdits: 1 } } },
-                                { text: { query: query, path: "descripcion", fuzzy: { maxEdits: 1 } } }
+                                { text: { query: searchTerm, path: "nombre", score: { boost: { value: 3 } }, fuzzy: { maxEdits: 1 } } },
+                                { text: { query: searchTerm, path: "variants.nombre", score: { boost: { value: 2 } }, fuzzy: { maxEdits: 1 } } },
+                                { text: { query: searchTerm, path: "descripcion", fuzzy: { maxEdits: 1 } } }
                             ],
                             minimumShouldMatch: 1
                         }
@@ -1988,7 +1990,7 @@ export class ProductController {
             }
 
             const attrConditions: any[] = [];
-            const reservedKeys = ['limit', 'slugs', 'page', 'sort', 'priceRange', 'query'];
+            const reservedKeys = ['limit', 'slugs', 'page', 'sort', 'priceRange', 'query', 'search'];
 
             Object.keys(attributeFilters).forEach((key) => {
                 if (reservedKeys.includes(key)) return;
@@ -2011,22 +2013,18 @@ export class ProductController {
             // =================================================================
             // FASE 2: CAMPOS CALCULADOS PARA ORDENAMIENTO
             // =================================================================
-            const addFieldsStage: any = {
-                discountAmount: {
-                    $cond: [
-                        { $and: [{ $gt: ["$precioComparativo", 0] }, { $gt: ["$precioComparativo", "$precio"] }] },
-                        { $subtract: ["$precioComparativo", "$precio"] },
-                        0
-                    ]
+            pipeline.push({
+                $addFields: {
+                    discountAmount: {
+                        $cond: [
+                            { $and: [{ $gt: ["$precioComparativo", 0] }, { $gt: ["$precioComparativo", "$precio"] }] },
+                            { $subtract: ["$precioComparativo", "$precio"] },
+                            0
+                        ]
+                    },
+                    ...(searchTerm !== "" ? { searchScore: { $meta: "searchScore" } } : {})
                 }
-            };
-
-            // $meta: "searchScore" solo es admisible si se ejecutó $search previamente
-            if (hasQuery) {
-                addFieldsStage.searchScore = { $meta: "searchScore" };
-            }
-
-            pipeline.push({ $addFields: addFieldsStage });
+            });
 
             // =================================================================
             // FASE 3: DEFINICIÓN DE LÓGICA DE ORDENAMIENTO
@@ -2035,37 +2033,28 @@ export class ProductController {
 
             switch (sort) {
                 case 'relevancia':
-                case 'relevance':
-                    sortStage = hasQuery
-                        ? { searchScore: -1, _id: -1 }
-                        : { esDestacado: -1, createdAt: -1, _id: -1 };
+                    sortStage = searchTerm !== "" ? { searchScore: -1 } : { esDestacado: -1, createdAt: -1 };
                     break;
-
                 case 'recientes':
-                case 'newest':
-                    sortStage = { createdAt: -1, _id: -1 };
+                    sortStage = { createdAt: -1 };
                     break;
-
+                case 'rating':
+                    sortStage = { rating: -1, numReviews: -1 };
+                    break;
                 case 'discount':
-                    sortStage = { discountAmount: -1, createdAt: -1, _id: -1 };
+                    sortStage = { discountAmount: -1 };
                     break;
-
                 case 'price-asc':
-                case 'price_asc':
-                    sortStage = { precio: 1, _id: -1 };
+                    sortStage = { precio: 1 };
                     break;
-
                 case 'price-desc':
-                case 'price_desc':
-                    sortStage = { precio: -1, _id: -1 };
+                    sortStage = { precio: -1 };
                     break;
-
                 case 'name-asc':
-                    sortStage = { nombre: 1, _id: -1 };
+                    sortStage = { nombre: 1 };
                     break;
-
                 default:
-                    sortStage = { esDestacado: -1, createdAt: -1, _id: -1 };
+                    sortStage = { esDestacado: -1, createdAt: -1 };
             }
 
             pipeline.push({
@@ -2137,11 +2126,11 @@ export class ProductController {
             });
 
             const result = await Product.aggregate(pipeline);
-            const data = result[0] || {};
-            const totalProducts = Number(data.totalCount?.[0]?.count) || 0;
+            const data = result[0];
+            const totalProducts = data.totalCount[0]?.count || 0;
 
             res.status(200).json({
-                products: data.products || [],
+                products: data.products,
                 pagination: {
                     currentPage: pageNum,
                     totalPages: Math.ceil(totalProducts / limitNum) || 1,
@@ -2158,7 +2147,7 @@ export class ProductController {
                     categoryName: context.category ? (context.category as any).nombre : null,
                     brandName: context.brand ? (context.brand as any).nombre : null,
                     lineName: context.line ? (context.line as any).nombre : null,
-                    searchQuery: query || null
+                    searchQuery: searchTerm || null
                 },
                 isFallback: false
             });

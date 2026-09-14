@@ -8,19 +8,20 @@ export interface ISectionBlock {
     title?: string;
     subtitle?: string;
     imageUrl?: string;
-    linkTo?: string;            // Ruta interna en Next.js 15 (ej: "/category/electronica")
-    productId?: Types.ObjectId; // Referencia directa para 'product_grid'
+    linkTo?: string;            
+    productId?: Types.ObjectId; 
 }
 
 export interface ISection extends Document {
-    title: string;              // Nombre administrativo interno (ej: "Categorías Populares Verano")
-    slug: string;               // Key única para Next.js (ej: "home-categories-grid")
+    title: string;              
+    slug: string;               
     type: SectionType;
     order: number;
     isActive: boolean;
     settings: {
-        bodyText?: string;        // Usado en 'rich_text' para descripciones largas o HTML
-        gridColumns?: number;     // Control estructural en Next.js (ej: 2, 3, 4 columnas)
+        bodyText?: string;        
+        gridColumns?: number;     
+        showTitle?: boolean;      // 👈 Nuevo campo añadido
     };
     blocks: ISectionBlock[];
     createdAt: Date;
@@ -39,7 +40,8 @@ const SectionSchema = new Schema<ISection>({
     isActive: { type: Boolean, default: true },
     settings: {
         bodyText: { type: String },
-        gridColumns: { type: Number, default: 4 }
+        gridColumns: { type: Number, default: 4 },
+        showTitle: { type: Boolean, default: true } // 👈 Valor por defecto en la BD
     },
     blocks: {
         type: [{
@@ -58,7 +60,6 @@ const SectionSchema = new Schema<ISection>({
     }
 }, { timestamps: true });
 
-// Índice compuesto para optimizar las consultas del Home de manera instantánea
 SectionSchema.index({ isActive: 1, order: 1 });
 
 export const Section = model<ISection>('Section', SectionSchema);

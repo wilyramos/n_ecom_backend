@@ -115,8 +115,6 @@ export class SectionService {
     /**
      * Actualiza las propiedades o colecciones de bloques de una sección mediante operaciones atómicas.
      */
-    // File: backend/src/modules/section/section.service.ts
-
     async updateSection(id: string, updateData: UpdateQuery<ISection>): Promise<ISection> {
         if (!Types.ObjectId.isValid(id)) {
             throw new AppError('El identificador de sección provisto es inválido.', 400);
@@ -146,6 +144,9 @@ export class SectionService {
             if (updateData.settings) {
                 if (updateData.settings.gridColumns !== undefined) {
                     updateData["settings.gridColumns"] = updateData.settings.gridColumns;
+                }
+                if (updateData.settings.showTitle !== undefined) {
+                    updateData["settings.showTitle"] = updateData.settings.showTitle;
                 }
                 delete updateData.settings; // Eliminamos el objeto agrupado para evitar colisiones
             }

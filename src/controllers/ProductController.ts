@@ -1038,8 +1038,8 @@ export class ProductController {
 
                     // Convertir a WEBP usando SHARP
                     const webpBuffer = await sharp(image.filepath)
-                        .webp({ quality: 85 }) //
-                        .toBuffer();
+            .webp({ quality: 100, lossless: true }) // Calidad al máximo y sin pérdida
+            .toBuffer();
 
                     // Subir buffer WebP a Cloudinary
                     return new Promise((resolve, reject) => {

@@ -97,7 +97,7 @@ export class OrderEmail {
       });
 
       await resend.emails.send({
-        from: "neoshop <contacto@neoshopimportaciones.com>",
+        from: "neoshop <neoshopimportaciones@gmail.com>",
         to: email,
         subject: "Tu pedido ha sido confirmado | NEOSHOP IMPORTACIONES",
         html: emailContent,
@@ -207,7 +207,7 @@ export class OrderEmail {
       });
 
       await resend.emails.send({
-        from: "neoshop System <contacto@neoshopimportaciones.com>",
+        from: "neoshop System <neoshopimportaciones@gmail.com>",
         to: adminEmails,
         subject: `[NUEVA VENTA] Pedido #${orderId} - S/. ${totalPrice.toFixed(2)}`,
         html: emailContent,
@@ -356,7 +356,7 @@ export class OrderEmail {
       });
 
       await resend.emails.send({
-        from: "neoshop <contacto@neoshopimportaciones.com>",
+        from: "neoshop <neoshopimportaciones@gmail.com>",
         to: email,
         subject: currentStatusInfo.subject,
         html: emailContent,

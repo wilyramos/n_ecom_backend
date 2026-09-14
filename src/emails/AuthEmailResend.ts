@@ -22,7 +22,7 @@ export class AuthEmailResend {
             });
 
             const response = await resend.emails.send({
-                from: 'neoshop <contacto@neoshopimportaciones.com>',
+                from: 'neoshop <neoshopimportaciones@gmail.com>',
                 to: email,
                 subject: 'Bienvenido a neoshop',
                 html: emailContent
@@ -58,7 +58,7 @@ export class AuthEmailResend {
             });
 
             const response = await resend.emails.send({
-                from: 'neoshop <contacto@neoshopimportaciones.com>',
+                from: 'neoshop <neoshopimportaciones@gmail.com>',
                 to: email,
                 subject: 'Restablecimiento de contraseña',
                 html: emailContent
@@ -90,7 +90,7 @@ export class AuthEmailResend {
             });
 
             const response = await resend.emails.send({
-                from: 'neoshop <contacto@neoshopimportaciones.com>',
+                from: 'neoshop <neoshopimportaciones@gmail.com>',
                 to: email,
                 subject: 'Contraseña actualizada',
                 html: emailContent

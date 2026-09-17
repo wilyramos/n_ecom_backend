@@ -20,6 +20,15 @@ interface StatsAggregationResult {
   estadosOperativos: Array<{ _id: string; count: number }>;
 }
 
+const TRANSICIONES_VALIDAS: Record<EstadoPedido, EstadoPedido[]> = {
+  [EstadoPedido.AWAITING_PAYMENT]: [EstadoPedido.PROCESSING, EstadoPedido.CANCELED],
+  [EstadoPedido.PROCESSING]: [EstadoPedido.SHIPPED, EstadoPedido.DELIVERED, EstadoPedido.PAID_BUT_OUT_OF_STOCK, EstadoPedido.CANCELED],
+  [EstadoPedido.PAID_BUT_OUT_OF_STOCK]: [EstadoPedido.PROCESSING, EstadoPedido.CANCELED],
+  [EstadoPedido.SHIPPED]: [EstadoPedido.DELIVERED, EstadoPedido.CANCELED],
+  [EstadoPedido.DELIVERED]: [],
+  [EstadoPedido.CANCELED]: [],
+};
+
 export class PedidoService {
   private async generarNumeroPedido(): Promise<string> {
     const hoy = new Date();
@@ -333,7 +342,6 @@ export class PedidoService {
     return { pedido, status: 'approved' };
   }
 
-  // ... (Las funciones restantes se mantienen intactas)
   async obtenerMisPedidosCliente(userId: string, email: string): Promise<IPedido[]> {
     const cleanEmail = email.trim().toLowerCase();
     return await Pedido.find({
@@ -484,7 +492,6 @@ export class PedidoService {
         $facet: {
           ventasAprobadas: [
             {
-              // 👈 Excluye canceladas y exige pago aprobado estrictamente
               $match: {
                 'payment.status': EstadoPago.APPROVED,
                 status: { $ne: EstadoPedido.CANCELED },
@@ -537,12 +544,20 @@ export class PedidoService {
 
   async actualizarEstadoPedido(pedidoId: string, nuevoEstado: EstadoPedido): Promise<IPedido> {
     const pedido = await Pedido.findById(pedidoId);
-    if (!pedido) throw new Error('Pedido no encontrado');
+    if (!pedido) throw new AppError('Pedido no encontrado', 404);
 
     const estadoAnterior = pedido.status;
     const pagoAprobadoPrevio = pedido.payment.status === EstadoPago.APPROVED;
 
     if (estadoAnterior === nuevoEstado) return pedido;
+
+    const transicionesPermitidas = TRANSICIONES_VALIDAS[estadoAnterior] || [];
+    if (!transicionesPermitidas.includes(nuevoEstado)) {
+      throw new AppError(
+        `Cambio de estado inválido. No es posible transicionar de '${estadoAnterior}' a '${nuevoEstado}'.`,
+        400
+      );
+    }
 
     pedido.status = nuevoEstado;
     pedido.statusHistory.push({ status: nuevoEstado, changedAt: new Date() });
@@ -574,7 +589,6 @@ export class PedidoService {
 
     return pedidoActualizado;
   }
-
 
   async expirarOrdenesPendientesPowerpay(): Promise<number> {
     const TOLERANCIA_MINUTOS = 10;
@@ -610,12 +624,10 @@ export class PedidoService {
     return pedidosAExpirar.length;
   }
 
-  // NUEVO MÉTODO PARA CANCELAR PEDIDOS DE 24 HORAS
   async expirarOrdenesPendientesGlobal(): Promise<number> {
     const LIMITE_EXPIRACION_MS = 24 * 60 * 60 * 1000; // 24 horas exactas en milisegundos
     const fechaCorte = new Date(Date.now() - LIMITE_EXPIRACION_MS);
 
-    // Buscamos TODOS los pedidos que sigan esperando pago y fueron creados ANTES de la fecha de corte
     const pedidosAExpirar = await Pedido.find({
       status: EstadoPedido.AWAITING_PAYMENT,
       'payment.status': EstadoPago.PENDING,
@@ -638,7 +650,6 @@ export class PedidoService {
 
       await pedido.save();
 
-      // Liberamos el inventario de nuevo al stock disponible
       await InventoryService.reponerStockItems(pedido.items);
 
       console.log(`❌ [Global Cron] Pedido #${pedido.orderNumber} marcado como CANCELED (Expirado por 24h). Stock repuesto.`);

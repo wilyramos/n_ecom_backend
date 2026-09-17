@@ -26,7 +26,6 @@ import lineRouter from './routes/line.router'
 import productRouterV2 from './modules/product/product.routes'
 import saleRouterV2 from './modules/sale/sale.routes'
 import cashRouter from './modules/cash/cash.routes'
-import reportRouter from './modules/reports/report.routes'
 import sliderBannerRouter from './modules/sliderbanner/sliderbanner.routes'
 import claimRouter from './modules/claim/claim.router'
 import userRouterV2 from './modules/users/users.router'
@@ -36,6 +35,7 @@ import attendanceRouter from './modules/attendance/attendance.routes'
 import pedidoRouter from './modules/pedidos/pedido.routes'
 import webhookRouterV3 from './modules/webhooks/webhook.routes'
 import ticketRouter from './modules/ticket/ticket.routes'
+import reportsRouterV3 from './modules/reports/reports.routes'
 
 import setupSwagger from './config/swagger.config'
 import collectionRouter from './modules/collection/collection.router'
@@ -82,13 +82,13 @@ app.use(
     webhookRouterV3
 )
 app.use('/api/tickets', ticketRouter)
+app.use('/api/reports/v3', reportsRouterV3)
 
 // Version 2.0: Refactor to use controllers and services for products and sales
 app.use('/api/products/v2', productRouterV2)
 app.use('/api/sales/v2', saleRouterV2)
 app.use('/api/cash/v2', cashRouter)
 app.use('/api/users/v2', userRouterV2)
-app.use('/api/reports/v2', reportRouter)
 app.use('/api/slider-banners', sliderBannerRouter)
 app.use('/api/collections', collectionRouter)
 app.use('/api/claims', claimRouter)

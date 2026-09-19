@@ -562,74 +562,68 @@ export class ProductController {
             const { query } = req.query;
             const searchText = query?.toString().trim() || "";
 
-            // Si no hay texto de búsqueda, devolver lista vacía
             if (!searchText) {
                 res.status(200).json([]);
                 return;
             }
 
             const pipeline: any[] = [
-                // 1. Etapa de Búsqueda (Atlas Search)
-                // Usamos el mismo índice 'ecommerce_search_products' que creamos para la página principal
                 {
                     $search: {
                         index: "ecommerce_search_products",
                         compound: {
                             should: [
+                                // Prioridad 1: Coincidencia exacta de frase en el nombre (Máxima puntuación)
+                                {
+                                    phrase: {
+                                        query: searchText,
+                                        path: "nombre",
+                                        score: { boost: { value: 15 } }
+                                    }
+                                },
+                                // Prioridad 2: Coincidencia parcial con errores tipográficos en el nombre
                                 {
                                     text: {
                                         query: searchText,
                                         path: "nombre",
-                                        score: { boost: { value: 3 } }, // Prioridad 1: Coincidencia en Nombre
-                                        fuzzy: { maxEdits: 1 } // Permite pequeños errores (ej: "ipone" -> "iphone")
+                                        score: { boost: { value: 10 } }, 
+                                        fuzzy: { maxEdits: 1 } 
                                     }
                                 },
+                                // Prioridad 3: Coincidencia en las variantes del producto
                                 {
                                     text: {
                                         query: searchText,
                                         path: "variants.nombre",
-                                        score: { boost: { value: 2 } }, // Prioridad 2: Coincidencia en Variante
+                                        score: { boost: { value: 5 } }, 
                                         fuzzy: { maxEdits: 1 }
                                     }
                                 },
-                                {
-                                    text: {
-                                        query: searchText,
-                                        path: "descripcion",
-                                        score: { boost: { value: 1 } }, // Prioridad 3: Descripción
-                                        fuzzy: { maxEdits: 1 }
-                                    }
-                                }
                             ],
-                            minimumShouldMatch: 1 // Al menos una coincidencia es necesaria
+                            minimumShouldMatch: 1 
                         }
                     }
                 },
-                // 2. Match (Filtros duros)
-                // Filtramos por activos. Nota: Es más eficiente hacer esto después del search
-                // a menos que isActive esté indexado como "token" en Atlas Search.
                 {
                     $match: {
                         isActive: true
                     }
                 },
-                // 3. Limit (Solo necesitamos 5 para el dropdown)
                 {
                     $limit: 5
                 },
-                // 4. Project (Equivalente a .select() y .slice())
                 {
                     $project: {
                         _id: 1,
                         nombre: 1,
                         precio: 1,
                         precioComparativo: 1,
-                        breand: 1,
+                        breand: 1, 
                         slug: 1,
                         esDestacado: 1,
                         esNuevo: 1,
-                        // MongoDB Aggregation usa $slice para recortar arrays
-                        imagenes: { $slice: ["$imagenes", 1] }
+                        imagenes: { $slice: ["$imagenes", 1] },
+                        score: { $meta: "searchScore" } 
                     }
                 }
             ];

@@ -1008,9 +1008,11 @@ export class ProductController {
     };
 
 
-    static async uploadImageCloudinary(req: Request, res: Response) {
-
-        const form = formidable({ multiples: true });
+ static async uploadImageCloudinary(req: Request, res: Response) {
+        const form = formidable({ 
+            multiples: true,
+            maxFileSize: 15 * 1024 * 1024 // 15MB por archivo para no saturar disco
+        });
 
         form.parse(req, async (error, fields, files) => {
             if (error) {
@@ -1034,34 +1036,19 @@ export class ProductController {
             try {
                 const imageUrls = [];
 
-                const uploadPromises = images.map(async (image) => {
-
-                    // Convertir a WEBP usando SHARP
-                    const webpBuffer = await sharp(image.filepath)
-            .webp({ quality: 100, lossless: true }) // Calidad al máximo y sin pérdida
-            .toBuffer();
-
-                    // Subir buffer WebP a Cloudinary
-                    return new Promise((resolve, reject) => {
-                        const stream = cloudinary.uploader.upload_stream(
-                            {
-                                public_id: uuid(),
-                                folder: "products",
-                                format: "webp"
-                            },
-                            (err, result) => {
-                                if (err) reject(err);
-                                else resolve(result);
-                            }
-                        );
-
-                        stream.end(webpBuffer); // Enviar buffer convertido
+                const uploadPromises = images.map((image) => {
+                    // Se sube directamente el archivo sin pasar por Sharp
+                    return cloudinary.uploader.upload(image.filepath, {
+                        folder: "products",
+                        // Cloudinary transformará a WebP o AVIF automáticamente según el navegador
+                        // cuando la imagen sea solicitada.
                     });
                 });
 
-                const results: any = await Promise.all(uploadPromises);
+                // Esperamos que todas las imágenes suban a Cloudinary
+                const results = await Promise.all(uploadPromises);
 
-                results.forEach(result => {
+                results.forEach((result: any) => {
                     imageUrls.push(result.secure_url);
                 });
 
@@ -1069,9 +1056,8 @@ export class ProductController {
                 return;
 
             } catch (error) {
-                console.error("Error al subir las imágenes:", error);
-
-                res.status(500).json({ message: "Error al subir las imágenes" });
+                console.error("Error al subir a Cloudinary:", error);
+                res.status(500).json({ message: "Error interno al subir imágenes" });
                 return;
             }
         });

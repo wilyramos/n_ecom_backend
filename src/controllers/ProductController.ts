@@ -1011,7 +1011,7 @@ export class ProductController {
  static async uploadImageCloudinary(req: Request, res: Response) {
         const form = formidable({ 
             multiples: true,
-            maxFileSize: 15 * 1024 * 1024 // 15MB por archivo para no saturar disco
+            maxFileSize: 7 * 1024 * 1024 // 7MB por archivo para no saturar disco
         });
 
         form.parse(req, async (error, fields, files) => {

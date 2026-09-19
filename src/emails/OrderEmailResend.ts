@@ -4,6 +4,8 @@ import type { IOrderItem } from "../models/Order";
 import User from "../models/User";
 import { EstadoPedido } from "../modules/pedidos/pedido.model";
 
+const FROM_EMAIL = 'neoshop <no-reply@neoshopimportaciones.com>';
+
 export class OrderEmail {
   /**
    * Envía el correo de confirmación de pedido pagado al cliente.
@@ -28,23 +30,23 @@ export class OrderEmail {
         .map(
           (item) => `
             <tr>
-              <td style="padding:10px 0; border-bottom:1px solid #f0f0f0;">
+              <td style="padding:15px 0; border-bottom:1px solid #f0f0f0; width: 65px;">
                 <img 
                   src="${item.imagen || "https://neoshopimportaciones.com/logo.png"}"
                   alt="${item.nombre}"
-                  style="width:55px; height:auto; border-radius:6px;"
+                  style="width:55px; height:auto; border-radius:6px; border: 1px solid #f0f0f0; display: block;"
                 />
               </td>
-              <td style="padding:10px; border-bottom:1px solid #f0f0f0;">
-                <div style="font-weight:500;">${item.nombre}</div>
+              <td style="padding:15px 10px; border-bottom:1px solid #f0f0f0; color: #171411;">
+                <div style="font-weight:600; font-size: 14px;">${item.nombre}</div>
               </td>
-              <td style="text-align:center; border-bottom:1px solid #f0f0f0;">
+              <td style="text-align:center; padding:15px 10px; border-bottom:1px solid #f0f0f0; color: #a0a0a0; font-size: 14px;">
                 ${item.quantity}
               </td>
-              <td style="text-align:right; border-bottom:1px solid #f0f0f0;">
+              <td style="text-align:right; padding:15px 10px; border-bottom:1px solid #f0f0f0; color: #a0a0a0; font-size: 14px;">
                 S/. ${item.price.toFixed(2)}
               </td>
-              <td style="text-align:right; border-bottom:1px solid #f0f0f0;">
+              <td style="text-align:right; padding:15px 0; border-bottom:1px solid #f0f0f0; color: #0a0a0a; font-size: 14px;">
                 <strong>S/. ${(item.price * item.quantity).toFixed(2)}</strong>
               </td>
             </tr>`
@@ -54,26 +56,31 @@ export class OrderEmail {
       const emailContent = baseEmailTemplate({
         title: "Gracias por tu compra",
         content: `
-          <div style="font-family:Inter,Arial,sans-serif; color:#111827; line-height:1.6;">
-            <p style="font-size:15px;">Hola ${name || "cliente"},</p>
+          <div style="color:#171411; line-height:1.6;">
+            <p style="font-size:15px; color: #a0a0a0;">Hola <strong style="color: #0a0a0a;">${name || "cliente"}</strong>,</p>
             <p style="font-size:15px;">
-              Hemos recibido tu pedido <strong>#${orderId}</strong> y ya está siendo procesado.
+              Hemos recibido tu pedido <strong style="color: #0a0a0a;">#${orderId}</strong> y ya está siendo procesado por nuestro equipo.
             </p>
 
-            <p style="margin-top:8px; font-size:15px;">
-              <strong>Dirección de entrega:</strong> ${shippingMethod}
-            </p>
+            <div style="margin-top:20px; padding: 15px; border: 1px solid #f0f0f0; border-radius: 6px;">
+              <p style="margin:0; font-size:14px;">
+                <strong style="color: #a0a0a0; display:block; margin-bottom:4px;">Dirección de entrega:</strong> 
+                <span style="color: #171411;">${shippingMethod}</span>
+              </p>
+            </div>
 
-            <h3 style="margin-top:20px; font-size:17px; font-weight:600;">Resumen de tu pedido</h3>
+            <h3 style="margin-top:35px; margin-bottom: 15px; font-size:16px; font-weight:600; color: #0a0a0a; border-bottom: 2px solid #0a0a0a; padding-bottom: 8px; display: inline-block;">
+              Resumen de tu pedido
+            </h3>
 
-            <table style="width:100%; border-collapse:collapse; margin-top:10px; font-size:14px;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
               <thead>
-                <tr style="color:#6b7280; text-align:left;">
-                  <th style="padding-bottom:6px;">Imagen</th>
-                  <th style="padding-bottom:6px;">Producto</th>
-                  <th style="padding-bottom:6px;">Cant.</th>
-                  <th style="padding-bottom:6px; text-align:right;">Precio</th>
-                  <th style="padding-bottom:6px; text-align:right;">Subtotal</th>
+                <tr>
+                  <th style="padding-bottom:10px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:left; font-weight:500;">Imagen</th>
+                  <th style="padding-bottom:10px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:left; font-weight:500;">Producto</th>
+                  <th style="padding-bottom:10px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:center; font-weight:500;">Cant.</th>
+                  <th style="padding-bottom:10px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:right; font-weight:500;">Precio</th>
+                  <th style="padding-bottom:10px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:right; font-weight:500;">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
@@ -81,23 +88,22 @@ export class OrderEmail {
               </tbody>
             </table>
 
-            <p style="text-align:right; font-size:16px; margin-top:4px; font-weight:600;">
-              Total pagado: S/. ${totalPrice.toFixed(2)}
-            </p>
+            <div style="text-align:right; margin-top:20px;">
+              <p style="font-size:18px; margin:0; color: #0a0a0a;">
+                <span style="color: #a0a0a0; font-size: 14px; font-weight: normal; margin-right: 10px;">Total pagado:</span> 
+                <strong>S/. ${totalPrice.toFixed(2)}</strong>
+              </p>
+            </div>
 
-            <p style="margin-top:20px; font-size:14px; color:#4b5563;">
+            <p style="margin-top:40px; font-size:13px; color:#a0a0a0; text-align: center;">
               Recibirás una notificación por correo cada vez que el estado de tu pedido se actualice.
-            </p>
-
-            <p style="margin-top:10px; font-size:14px;">
-              Gracias por elegir <strong>neoshop</strong>
             </p>
           </div>
         `,
       });
 
       await resend.emails.send({
-        from: "neoshop <neoshopimportaciones@gmail.com>",
+        from: FROM_EMAIL,
         to: email,
         subject: "Tu pedido ha sido confirmado | NEOSHOP IMPORTACIONES",
         html: emailContent,
@@ -149,49 +155,49 @@ export class OrderEmail {
         .map(
           (item) => `
             <tr>
-              <td style="padding:10px 0; border-bottom:1px solid #f0f0f0;">
+              <td style="padding:12px 0; border-bottom:1px solid #f0f0f0; width: 55px;">
                 <img 
                   src="${item.imagen || "https://neoshopimportaciones.com/logo.png"}"
                   alt="${item.nombre}"
-                  style="width:45px; height:auto; border-radius:6px;"
+                  style="width:45px; height:auto; border-radius:4px; border: 1px solid #f0f0f0;"
                 />
               </td>
-              <td style="padding:10px; border-bottom:1px solid #f0f0f0;">
-                <div style="font-weight:500;">${item.nombre}</div>
+              <td style="padding:12px 10px; border-bottom:1px solid #f0f0f0; color: #171411; font-size: 13px;">
+                <div style="font-weight:600;">${item.nombre}</div>
               </td>
-              <td style="text-align:center; border-bottom:1px solid #f0f0f0;">${item.quantity}</td>
-              <td style="text-align:right; border-bottom:1px solid #f0f0f0;">S/. ${item.price.toFixed(2)}</td>
-              <td style="text-align:right; border-bottom:1px solid #f0f0f0;"><strong>S/. ${(item.price * item.quantity).toFixed(2)}</strong></td>
+              <td style="text-align:center; padding:12px 10px; border-bottom:1px solid #f0f0f0; color: #a0a0a0; font-size: 13px;">${item.quantity}</td>
+              <td style="text-align:right; padding:12px 10px; border-bottom:1px solid #f0f0f0; color: #a0a0a0; font-size: 13px;">S/. ${item.price.toFixed(2)}</td>
+              <td style="text-align:right; padding:12px 0; border-bottom:1px solid #f0f0f0; color: #0a0a0a; font-size: 13px;"><strong>S/. ${(item.price * item.quantity).toFixed(2)}</strong></td>
             </tr>`
         )
         .join("");
 
       const emailContent = baseEmailTemplate({
-        title: "🚨 ¡Nuevo Pedido Pagado Recibido!",
+        title: "🚨 Nuevo Pedido Registrado",
         content: `
-          <div style="font-family:Inter,Arial,sans-serif; color:#111827; line-height:1.6;">
-            <p style="font-size:15px; font-weight:bold; color:#16a34a;">
-              Se ha confirmado el pago de un nuevo pedido.
+          <div style="color:#171411; line-height:1.6;">
+            <p style="font-size:15px; font-weight:600; color:#0a0a0a; text-align: center; margin-bottom: 30px;">
+              Se ha confirmado el pago de un nuevo pedido en la tienda.
             </p>
 
-            <div style="background-color:#f9fafb; padding:12px; border-radius:8px; margin:15px 0;">
-              <h4 style="margin:0 0 8px 0; font-size:14px; color:#374151;">Datos del Cliente:</h4>
-              <p style="margin:2px 0; font-size:14px;"><strong>Nombre:</strong> ${customerName}</p>
-              <p style="margin:2px 0; font-size:14px;"><strong>Email:</strong> ${customerEmail}</p>
-              <p style="margin:2px 0; font-size:14px;"><strong>Teléfono:</strong> ${customerPhone || "No especificado"}</p>
-              <p style="margin:2px 0; font-size:14px;"><strong>Dirección:</strong> ${shippingAddress}</p>
+            <div style="border: 1px solid #f0f0f0; padding:20px; border-radius:8px; margin:20px 0;">
+              <h4 style="margin:0 0 15px 0; font-size:12px; color:#a0a0a0; text-transform: uppercase; letter-spacing: 1px;">Datos del Cliente</h4>
+              <p style="margin:6px 0; font-size:14px;"><strong style="color: #a0a0a0; width: 80px; display: inline-block;">Nombre:</strong> <span style="color: #171411;">${customerName}</span></p>
+              <p style="margin:6px 0; font-size:14px;"><strong style="color: #a0a0a0; width: 80px; display: inline-block;">Email:</strong> <span style="color: #171411;">${customerEmail}</span></p>
+              <p style="margin:6px 0; font-size:14px;"><strong style="color: #a0a0a0; width: 80px; display: inline-block;">Teléfono:</strong> <span style="color: #171411;">${customerPhone || "No especificado"}</span></p>
+              <p style="margin:6px 0; font-size:14px;"><strong style="color: #a0a0a0; width: 80px; display: inline-block;">Dirección:</strong> <span style="color: #171411;">${shippingAddress}</span></p>
             </div>
 
-            <h3 style="margin-top:20px; font-size:16px; font-weight:600;">Detalle de la Orden #${orderId}</h3>
+            <h3 style="margin-top:30px; margin-bottom: 15px; font-size:15px; font-weight:600; color: #0a0a0a;">Detalle de la Orden #${orderId}</h3>
 
-            <table style="width:100%; border-collapse:collapse; margin-top:10px; font-size:14px;">
+            <table style="width:100%; border-collapse:collapse; font-size:13px;">
               <thead>
-                <tr style="color:#6b7280; text-align:left;">
-                  <th style="padding-bottom:6px;">Img</th>
-                  <th style="padding-bottom:6px;">Producto</th>
-                  <th style="padding-bottom:6px;">Cant.</th>
-                  <th style="padding-bottom:6px; text-align:right;">Precio</th>
-                  <th style="padding-bottom:6px; text-align:right;">Subtotal</th>
+                <tr>
+                  <th style="padding-bottom:8px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:left; font-weight:500;">Img</th>
+                  <th style="padding-bottom:8px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:left; font-weight:500;">Producto</th>
+                  <th style="padding-bottom:8px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:center; font-weight:500;">Cant.</th>
+                  <th style="padding-bottom:8px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:right; font-weight:500;">Precio</th>
+                  <th style="padding-bottom:8px; border-bottom:1px solid #a0a0a0; color:#a0a0a0; text-align:right; font-weight:500;">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
@@ -199,15 +205,18 @@ export class OrderEmail {
               </tbody>
             </table>
 
-            <p style="text-align:right; font-size:16px; margin-top:10px; font-weight:bold;">
-              Monto Total Cobrado: S/. ${totalPrice.toFixed(2)}
-            </p>
+            <div style="text-align:right; margin-top:20px;">
+              <p style="font-size:16px; margin:0; color: #0a0a0a;">
+                <span style="color: #a0a0a0; font-size: 13px; font-weight: normal; margin-right: 10px;">Total Cobrado:</span> 
+                <strong>S/. ${totalPrice.toFixed(2)}</strong>
+              </p>
+            </div>
           </div>
         `,
       });
 
       await resend.emails.send({
-        from: "neoshop System <neoshopimportaciones@gmail.com>",
+        from: FROM_EMAIL,
         to: adminEmails,
         subject: `[NUEVA VENTA] Pedido #${orderId} - S/. ${totalPrice.toFixed(2)}`,
         html: emailContent,
@@ -285,7 +294,7 @@ export class OrderEmail {
           subject: `Pedido #${orderId} en preparación | NEOSHOP IMPORTACIONES`,
           title: "¡Tu pedido está en preparación!",
           message: "Hemos recibido tu pago y nuestro equipo está alistando tus productos para el despacho.",
-          badgeColor: "#3b82f6",
+          badgeColor: "#171411", // Adaptado al tema neutral
           label: "En Preparación",
         },
         [EstadoPedido.SHIPPED]: {
@@ -295,28 +304,28 @@ export class OrderEmail {
             deliveryMethod === 'pickup'
               ? "Tu pedido ya se encuentra disponible en tienda para que puedas acercarte a retirarlo."
               : "Tu paquete ha salido de nuestro almacén y se encuentra en ruta hacia la dirección registrada.",
-          badgeColor: "#6366f1",
+          badgeColor: "#171411", // Adaptado al tema neutral
           label: deliveryMethod === 'pickup' ? "Listo para Retiro" : "Enviado",
         },
         [EstadoPedido.DELIVERED]: {
           subject: `Pedido #${orderId} entregado con éxito | NEOSHOP IMPORTACIONES`,
           title: "¡Pedido Entregado!",
           message: "Tu pedido ha sido completado y entregado con éxito. ¡Esperamos que disfrutes de tus productos!",
-          badgeColor: "#16a34a",
+          badgeColor: "#0a0a0a", // Adaptado al tema neutral (más oscuro para éxito final)
           label: "Entregado",
         },
         [EstadoPedido.CANCELED]: {
           subject: `Pedido #${orderId} cancelado | NEOSHOP IMPORTACIONES`,
           title: "Pedido Cancelado",
           message: "Te informamos que tu pedido ha sido cancelado. Si tienes alguna duda sobre el motivo o reembolso, por favor contáctanos.",
-          badgeColor: "#ef4444",
+          badgeColor: "#a0a0a0", // Adaptado al tema neutral
           label: "Cancelado",
         },
         [EstadoPedido.PAID_BUT_OUT_OF_STOCK]: {
           subject: `Novedad sobre tu Pedido #${orderId} | NEOSHOP IMPORTACIONES`,
           title: "Incidencia con el inventario",
           message: "Tu pago fue procesado con éxito, pero uno o más artículos no cuentan con stock disponible en este momento. Nuestro equipo de soporte se pondrá en contacto contigo a la brevedad.",
-          badgeColor: "#f97316",
+          badgeColor: "#a0a0a0", // Adaptado al tema neutral
           label: "Sin Stock Temporal",
         },
       };
@@ -329,34 +338,30 @@ export class OrderEmail {
       const emailContent = baseEmailTemplate({
         title: currentStatusInfo.title,
         content: `
-          <div style="font-family:Inter,Arial,sans-serif; color:#111827; line-height:1.6;">
-            <p style="font-size:15px;">Hola ${name || "cliente"},</p>
+          <div style="color:#171411; line-height:1.6;">
+            <p style="font-size:15px; color: #a0a0a0;">Hola <strong style="color: #0a0a0a;">${name || "cliente"}</strong>,</p>
             <p style="font-size:15px;">
-              Hay una actualización sobre tu pedido <strong>#${orderId}</strong>:
+              Hay una actualización sobre tu pedido <strong style="color: #0a0a0a;">#${orderId}</strong>:
             </p>
 
-            <div style="margin:20px 0; padding:16px; background-color:#f9fafb; border-radius:8px; border-left:4px solid ${currentStatusInfo.badgeColor};">
-              <span style="display:inline-block; padding:4px 10px; font-size:12px; font-weight:700; text-transform:uppercase; color:#fff; background-color:${currentStatusInfo.badgeColor}; border-radius:4px; margin-bottom:8px;">
+            <div style="margin:30px 0; padding:20px; border: 1px solid #f0f0f0; border-radius:8px; border-left: 4px solid ${currentStatusInfo.badgeColor};">
+              <span style="display:inline-block; padding:4px 10px; font-size:11px; font-weight:bold; letter-spacing: 0.5px; text-transform:uppercase; color:#ffffff; background-color:${currentStatusInfo.badgeColor}; border-radius:4px; margin-bottom:12px;">
                 ${currentStatusInfo.label}
               </span>
-              <p style="margin:8px 0 0 0; font-size:14px; color:#374151;">
+              <p style="margin:0; font-size:14px; color:#171411;">
                 ${currentStatusInfo.message}
               </p>
             </div>
 
-            <p style="margin-top:20px; font-size:14px; color:#4b5563;">
-              Puedes consultar el avance de tu orden ingresando tu número de pedido y correo en nuestra sección de tracking.
-            </p>
-
-            <p style="margin-top:16px; font-size:14px;">
-              Gracias por confiar en <strong>neoshop</strong>.
+            <p style="margin-top:30px; font-size:14px; color:#a0a0a0;">
+              Puedes consultar el avance de tu orden en cualquier momento ingresando tu número de pedido y correo en nuestra sección de tracking.
             </p>
           </div>
         `,
       });
 
       await resend.emails.send({
-        from: "neoshop <neoshopimportaciones@gmail.com>",
+        from: FROM_EMAIL,
         to: email,
         subject: currentStatusInfo.subject,
         html: emailContent,

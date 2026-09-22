@@ -234,24 +234,26 @@ export class OrderEmail {
    */
   static async notifyAdminsOnNewOrder(order: any) {
     try {
-      const admins = await User.find({ rol: "administrador", isActive: true }, "email");
-      const adminEmails = admins.map((admin) => admin.email);
+      // const admins = await User.find({ rol: "admin" }, "email");
+
+      // solo mandar email a wilyramos21gmail.com
+      const adminEmails = "wilyramos21@gmail.com";
 
       if (adminEmails.length === 0) return;
 
       const fullAddress = `${order.shippingAddress.direccion} (${order.shippingAddress.distrito}, ${order.shippingAddress.provincia})`;
       const fullName = `${order.customerProfile.nombre} ${order.customerProfile.apellidos || ""}`.trim();
 
-      await OrderEmail.sendAdminOrderNotificationEmail({
-        adminEmails,
-        customerName: fullName,
-        customerEmail: order.customerProfile.email,
-        customerPhone: order.customerProfile.telefono,
-        orderId: order.orderNumber,
-        totalPrice: order.totalPrice,
-        shippingAddress: fullAddress,
-        items: order.items,
-      });
+      // await OrderEmail.sendAdminOrderNotificationEmail({
+      //   adminEmails,
+      //   customerName: fullName,
+      //   customerEmail: order.customerProfile.email,
+      //   customerPhone: order.customerProfile.telefono,
+      //   orderId: order.orderNumber,
+      //   totalPrice: order.totalPrice,
+      //   shippingAddress: fullAddress,
+      //   items: order.items,
+      // });
     } catch (error) {
       console.error("⚠️ Error consultando admins para notificaciones de orden:", error);
     }

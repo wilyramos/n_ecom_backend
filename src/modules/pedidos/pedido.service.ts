@@ -22,7 +22,12 @@ interface StatsAggregationResult {
 
 const TRANSICIONES_VALIDAS: Record<EstadoPedido, EstadoPedido[]> = {
   [EstadoPedido.AWAITING_PAYMENT]: [EstadoPedido.PROCESSING, EstadoPedido.CANCELED],
-  [EstadoPedido.PROCESSING]: [EstadoPedido.SHIPPED, EstadoPedido.DELIVERED, EstadoPedido.PAID_BUT_OUT_OF_STOCK, EstadoPedido.CANCELED],
+  [EstadoPedido.PROCESSING]: [
+    EstadoPedido.SHIPPED,
+    EstadoPedido.DELIVERED,
+    EstadoPedido.PAID_BUT_OUT_OF_STOCK,
+    EstadoPedido.CANCELED,
+  ],
   [EstadoPedido.PAID_BUT_OUT_OF_STOCK]: [EstadoPedido.PROCESSING, EstadoPedido.CANCELED],
   [EstadoPedido.SHIPPED]: [EstadoPedido.DELIVERED, EstadoPedido.CANCELED],
   [EstadoPedido.DELIVERED]: [],
@@ -44,7 +49,7 @@ export class PedidoService {
     finDia.setHours(23, 59, 59, 999);
 
     const conteo = await Pedido.countDocuments({
-      createdAt: { $gte: inicioDia, $lt: finDia },
+      createdAt: { $gte: inicioDia,$lt: finDia },
     });
 
     const secuencia = String(conteo + 1).padStart(4, '0');
@@ -89,16 +94,14 @@ export class PedidoService {
           shippingMethod: fullAddress,
           items: pedido.items as any,
         }),
-        OrderEmail.notifyAdminsOnNewOrder(pedido).catch((err) =>
-          console.error(`⚠️ [PedidoService] Error notificando admins sobre el pedido #${pedido.orderNumber}:`, err)
-        ),
       ]);
     } catch (error) {
       console.error(`⚠️ [PedidoService] Fallo enviando correos de orden #${pedido.orderNumber}:`, error);
     }
   }
 
-  async confirmarPagoAprobado(pedido: IPedido, transactionId: string, gatewayData?: Record<string, unknown>): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async confirmarPagoAprobado(pedido: IPedido, transactionId: string, gatewayData?: any): Promise<void> {
     if (pedido.payment.status === EstadoPago.APPROVED) return;
 
     pedido.payment.status = EstadoPago.APPROVED;
@@ -107,13 +110,38 @@ export class PedidoService {
 
     if (gatewayData) {
       pedido.payment.gatewayData = gatewayData;
+
+      if (pedido.payment.provider === 'culqi') {
+        const source = gatewayData.source || gatewayData.charges?.[0]?.source;
+
+        pedido.payment.details = {
+          installments: gatewayData.installments || gatewayData.metadata?.installments || 1,
+        };
+
+        if (source) {
+          if (source.iin) {
+            pedido.payment.details.brand = source.iin.card_brand || source.iin.card_type;
+            pedido.payment.details.issuerName = source.iin.issuer?.name;
+            pedido.payment.details.cardType = source.iin.card_category;
+          }
+
+          if (source.last_four) {
+            pedido.payment.details.lastFour = source.last_four;
+            pedido.payment.details.paymentMethod = 'tarjeta';
+          } else if (source.type === 'yape') {
+            pedido.payment.details.paymentMethod = 'yape';
+            pedido.payment.details.brand = 'Yape';
+          }
+        } else if (gatewayData.payment_code) {
+          pedido.payment.details.paymentMethod = 'pagoefectivo';
+        }
+      }
     }
 
     pedido.status = EstadoPedido.PROCESSING;
     pedido.statusHistory.push({ status: EstadoPedido.PROCESSING, changedAt: new Date() });
 
     await pedido.save();
-
     await InventoryService.descontarStockItems(pedido.items);
 
     this.dispararCorreosConfirmacion(pedido).catch((err) =>
@@ -182,8 +210,35 @@ export class PedidoService {
     return { pedido: nuevoPedido, initPoint, culqiOrderId };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async procesarCargoCulqi(orderNumber: string, culqiTokenOrOrder: string, parameters3DS?: any) {
+  async cancelarPedidoAbordado(orderNumber: string): Promise<void> {
+    const pedido = await Pedido.findOne({ orderNumber: orderNumber.trim() });
+    if (!pedido || pedido.status === EstadoPedido.CANCELED) return;
+
+    const pagoPreviamenteAprobado = pedido.payment.status === EstadoPago.APPROVED;
+
+    pedido.status = EstadoPedido.CANCELED;
+    pedido.payment.status = EstadoPago.REJECTED;
+    pedido.statusHistory.push({ status: EstadoPedido.CANCELED, changedAt: new Date() });
+
+    await pedido.save();
+
+    if (pagoPreviamenteAprobado) {
+      await InventoryService.reponerStockItems(pedido.items);
+      console.log(`📦 [Inventario] Stock repuesto para pedido cancelado #${orderNumber}`);
+    }
+  }
+
+  async procesarCargoCulqi(
+    orderNumber: string,
+    culqiTokenOrOrder: string,
+    parameters3DS?: Record<string, unknown>,
+    deviceFingerPrintId?: string,
+    installments: number = 1
+  ) {
+    console.log(`\n💳 [procesarCargoCulqi] Iniciando para orden: ${orderNumber}, Token/Ref: ${culqiTokenOrOrder}`);
+    console.log(`🛡️ [procesarCargoCulqi] ¿Tiene parameters3DS?:`, !!parameters3DS);
+    if (parameters3DS) console.log(`🔍 [procesarCargoCulqi] Contenido 3DS:`, JSON.stringify(parameters3DS, null, 2));
+
     const pedido = await Pedido.findOne({ orderNumber: orderNumber.trim() });
 
     if (!pedido) throw Object.assign(new Error('No se encontró el pedido a procesar.'), { statusCode: 404 });
@@ -191,9 +246,10 @@ export class PedidoService {
     if (!process.env.CULQI_API_KEY) throw Object.assign(new Error('Configuración incompleta: CULQI_API_KEY ausente.'), { statusCode: 500 });
 
     // =======================================================================
-    // 1. CONSULTA DIRECTA A LA API DE CULQI PARA CARGOS AUTOMÁTICOS (chr_...)
+    // 1. CARGOS PREVIOS (chr_...)
     // =======================================================================
     if (culqiTokenOrOrder.startsWith('chr_')) {
+      console.log(`🔍 [Culqi Service] Procesando ruta chr_...`);
       const fetchChargeRes = await fetch(`https://api.culqi.com/v2/charges/${culqiTokenOrOrder}`, {
         method: 'GET',
         headers: {
@@ -202,9 +258,13 @@ export class PedidoService {
         },
       });
 
-      const chargeData = await fetchChargeRes.json() as Record<string, any>;
+      const chargeData = (await fetchChargeRes.json()) as Record<string, any>;
 
-      if (!fetchChargeRes.ok || (chargeData.outcome?.type !== 'venta_exitosa' || chargeData.action_code !== '000')) {
+      if (
+        !fetchChargeRes.ok ||
+        chargeData.outcome?.type !== 'venta_exitosa' ||
+        (chargeData.action_code && chargeData.action_code !== '000')
+      ) {
         pedido.status = EstadoPedido.CANCELED;
         pedido.payment.status = EstadoPago.REJECTED;
         pedido.payment.gatewayData = { ...(pedido.payment.gatewayData || {}), lastError: chargeData };
@@ -218,9 +278,10 @@ export class PedidoService {
     }
 
     // =======================================================================
-    // 2. CONSULTA DIRECTA A LA API DE CULQI PARA ÓRDENES DIFERIDAS (ord_...)
+    // 2. ÓRDENES DIFERIDAS (ord_...)
     // =======================================================================
     if (culqiTokenOrOrder.startsWith('ord_')) {
+      console.log(`🔍 [Culqi Service] Procesando ruta ord_...`);
       const fetchOrderRes = await fetch(`https://api.culqi.com/v2/orders/${culqiTokenOrOrder}`, {
         method: 'GET',
         headers: {
@@ -229,7 +290,7 @@ export class PedidoService {
         },
       });
 
-      const orderData = await fetchOrderRes.json() as Record<string, any>;
+      const orderData = (await fetchOrderRes.json()) as Record<string, any>;
       pedido.payment.gatewayData = orderData;
 
       if (!fetchOrderRes.ok) {
@@ -242,10 +303,7 @@ export class PedidoService {
       }
 
       if (orderData.state === 'paid') {
-        const chargeId = (orderData.charges && orderData.charges.length > 0)
-          ? orderData.charges[0].id
-          : orderData.id;
-
+        const chargeId = orderData.charges && orderData.charges.length > 0 ? orderData.charges[0].id : orderData.id;
         await this.confirmarPagoAprobado(pedido, chargeId, orderData);
         return { pedido, status: 'approved' };
       }
@@ -272,18 +330,13 @@ export class PedidoService {
     }
 
     // =======================================================================
-    // 3. GENERACIÓN DE CARGO VÍA TOKEN (tkn_live_...) -> Soporte 3D Secure
+    // 3. GENERACIÓN DE CARGO CON TOKEN (tkn_live_...) -> 3D Secure / Tarjeta
     // =======================================================================
-
-    console.log(`💳 [Culqi Backend] Procesando cobro vía POST con Token: ${culqiTokenOrOrder}`);
-
-    // =======================================================================
-    // 3. GENERACIÓN DE CARGO VÍA TOKEN (tkn_live_...) -> Manejo Unificado POST
-    // =======================================================================
-    console.log(`💳 [Culqi Backend] Ejecutando POST /charges con Token: ${culqiTokenOrOrder}`);
-
+    console.log(`🔍 [Culqi Service] Ejecutando POST /charges con Token (tkn_...): ${culqiTokenOrOrder}`);
     const amountInCents = Math.round(pedido.totalPrice * 100);
-    const payload: any = {
+    const cleanPhone = (pedido.customerProfile.telefono || '').replace(/\D/g, '').substring(0, 15);
+
+    const payload: Record<string, any> = {
       amount: amountInCents,
       currency_code: pedido.currency || 'PEN',
       email: pedido.customerProfile.email,
@@ -291,16 +344,21 @@ export class PedidoService {
       antifraud_details: {
         first_name: pedido.customerProfile.nombre,
         last_name: pedido.customerProfile.apellidos,
-        phone_number: pedido.customerProfile.telefono,
+        phone_number: cleanPhone.length >= 5 ? cleanPhone : '999999999',
+        ...(deviceFingerPrintId && { device_finger_print_id: deviceFingerPrintId }),
       },
       metadata: { orderNumber: pedido.orderNumber },
     };
 
-    // Si viene de una validación 3DS (Frictionless o Challenge), inyectamos la firma
+    if (installments && installments > 1) {
+      payload.installments = installments;
+    }
+
     if (parameters3DS) {
-      console.log('🛡️ [3DS Backend] Inyectando parameters3DS al POST de Culqi...');
       payload.authentication_3DS = parameters3DS;
     }
+
+    console.log(`📤 [Culqi POST Payload]:`, JSON.stringify(payload, null, 2));
 
     const culqiResponse = await fetch('https://api.culqi.com/v2/charges', {
       method: 'POST',
@@ -311,33 +369,37 @@ export class PedidoService {
       body: JSON.stringify(payload),
     });
 
-    const culqiData = await culqiResponse.json() as Record<string, any>;
-    console.log('📥 [Culqi POST Response Final]:', JSON.stringify(culqiData, null, 2));
+    const culqiData = (await culqiResponse.json()) as Record<string, any>;
+    console.log(`📥 [Culqi Response Status]: ${culqiResponse.status}`);
+    console.log(`📥 [Culqi Response Data]:`, JSON.stringify(culqiData, null, 2));
 
-    // 🔴 LA CORRECCIÓN CLAVE:
-    // Solo exigimos 3DS si Culqi devuelve estrictamente el action_code "REVIEW".
-    const requires3DS = culqiData.action_code === 'REVIEW';
-
-    if (requires3DS) {
-      console.log(`⚠️ [Culqi Backend] 3D Secure Requerido. Solicitando interacción al frontend...`);
-      pedido.payment.gatewayData = { ...(pedido.payment.gatewayData || {}), lastError: culqiData };
+    // Verificación 3DS: HTTP 200 y action_code REVIEW
+    if (culqiResponse.status === 200 && culqiData.action_code === 'REVIEW') {
+      console.log(`⚠️ [Culqi Service] El banco requiere autenticación 3DS (REVIEW).`);
+      pedido.payment.gatewayData = { ...(pedido.payment.gatewayData || {}), last3DSChallenge: culqiData };
       await pedido.save();
       return { pedido, status: 'requires_3ds' };
     }
 
-    // Validación estricta Zero-Trust
-    const isSuccess = culqiResponse.ok && culqiData.object === 'charge' && culqiData.outcome?.type === 'venta_exitosa';
+    // Validación Zero-Trust de Venta Exitosa
+    const isSuccess =
+      culqiResponse.status === 201 &&
+      culqiData.object === 'charge' &&
+      culqiData.outcome?.type === 'venta_exitosa' &&
+      (!culqiData.action_code || culqiData.action_code === '000');
 
     if (!isSuccess) {
+      console.error(`❌ [Culqi Service] El cargo fue rechazado por Culqi o el banco.`);
       pedido.status = EstadoPedido.CANCELED;
       pedido.payment.status = EstadoPago.REJECTED;
       pedido.payment.gatewayData = { ...(pedido.payment.gatewayData || {}), lastError: culqiData };
       await pedido.save();
 
-      const errorMessage = culqiData.user_message || 'Transacción denegada por el banco emisor. Intenta con otra tarjeta.';
+      const errorMessage = culqiData.user_message || culqiData.merchant_message || 'Transacción denegada por el banco emisor.';
       throw Object.assign(new Error(errorMessage), { statusCode: 400 });
     }
 
+    console.log(`✅ [Culqi Service] Venta exitosa aprobada ID: ${culqiData.id}`);
     await this.confirmarPagoAprobado(pedido, culqiData.id, culqiData);
     return { pedido, status: 'approved' };
   }
@@ -430,7 +492,7 @@ export class PedidoService {
     const cleanEmail = email.trim().toLowerCase();
     const result = await Pedido.updateMany(
       {
-        $or: [{ user: { $exists: false } }, { user: null }],
+        $or: [{ user: {$exists: false } }, { user: null }],
         'customerProfile.email': cleanEmail,
       },
       { $set: { user: new Types.ObjectId(userId) } }
@@ -525,20 +587,14 @@ export class PedidoService {
       return found ? found.count : 0;
     };
 
-    const awaiting = getCountByStatus(EstadoPedido.AWAITING_PAYMENT);
-    const processing = getCountByStatus(EstadoPedido.PROCESSING);
-    const shipped = getCountByStatus(EstadoPedido.SHIPPED);
-    const delivered = getCountByStatus(EstadoPedido.DELIVERED);
-    const canceled = getCountByStatus(EstadoPedido.CANCELED);
-
     return {
       totalRecaudado: Number(ventasData.montoTotal.toFixed(2)),
       totalApprovedOrders: ventasData.conteoAprobados,
-      pendientesCount: awaiting + processing,
-      enProcesoCount: processing,
-      enviadosCount: shipped,
-      entregadosCount: delivered,
-      canceladosCount: canceled,
+      pendientesCount: getCountByStatus(EstadoPedido.AWAITING_PAYMENT) + getCountByStatus(EstadoPedido.PROCESSING),
+      enProcesoCount: getCountByStatus(EstadoPedido.PROCESSING),
+      enviadosCount: getCountByStatus(EstadoPedido.SHIPPED),
+      entregadosCount: getCountByStatus(EstadoPedido.DELIVERED),
+      canceladosCount: getCountByStatus(EstadoPedido.CANCELED),
     };
   }
 
@@ -603,29 +659,20 @@ export class PedidoService {
       createdAt: { $lte: fechaCorte },
     });
 
-    if (pedidosAExpirar.length === 0) {
-      return 0;
-    }
-
-    console.log(`⏱️ [Powerpay Cron] Expirando ${pedidosAExpirar.length} orden(es) abandonada(s)...`);
+    if (pedidosAExpirar.length === 0) return 0;
 
     for (const pedido of pedidosAExpirar) {
       pedido.status = EstadoPedido.CANCELED;
       pedido.payment.status = EstadoPago.REJECTED;
-      pedido.statusHistory.push({
-        status: EstadoPedido.CANCELED,
-        changedAt: new Date(),
-      });
-
+      pedido.statusHistory.push({ status: EstadoPedido.CANCELED, changedAt: new Date() });
       await pedido.save();
-      console.log(`❌ [Powerpay Cron] Pedido #${pedido.orderNumber} marcado como CANCELED (Expirado).`);
     }
 
     return pedidosAExpirar.length;
   }
 
   async expirarOrdenesPendientesGlobal(): Promise<number> {
-    const LIMITE_EXPIRACION_MS = 24 * 60 * 60 * 1000; // 24 horas exactas en milisegundos
+    const LIMITE_EXPIRACION_MS = 24 * 60 * 60 * 1000;
     const fechaCorte = new Date(Date.now() - LIMITE_EXPIRACION_MS);
 
     const pedidosAExpirar = await Pedido.find({
@@ -634,27 +681,37 @@ export class PedidoService {
       createdAt: { $lte: fechaCorte },
     });
 
-    if (pedidosAExpirar.length === 0) {
-      return 0;
-    }
-
-    console.log(`⏱️ [Global Cron] Expirando ${pedidosAExpirar.length} orden(es) pendiente(s) mayor(es) a 24h...`);
+    if (pedidosAExpirar.length === 0) return 0;
 
     for (const pedido of pedidosAExpirar) {
+      const pagoHabiaSidoAprobado = pedido.payment.status === EstadoPago.APPROVED;
       pedido.status = EstadoPedido.CANCELED;
       pedido.payment.status = EstadoPago.REJECTED;
-      pedido.statusHistory.push({
-        status: EstadoPedido.CANCELED,
-        changedAt: new Date(),
-      });
-
+      pedido.statusHistory.push({ status: EstadoPedido.CANCELED, changedAt: new Date() });
       await pedido.save();
 
-      await InventoryService.reponerStockItems(pedido.items);
-
-      console.log(`❌ [Global Cron] Pedido #${pedido.orderNumber} marcado como CANCELED (Expirado por 24h). Stock repuesto.`);
+      if (pagoHabiaSidoAprobado) {
+        await InventoryService.reponerStockItems(pedido.items);
+      }
     }
 
     return pedidosAExpirar.length;
+  }
+
+  async purgarOrdenesCanceladasAntiguas(): Promise<number> {
+    const DIAS_RETENCION = 30;
+    const fechaLimite = new Date(Date.now() - DIAS_RETENCION * 24 * 60 * 60 * 1000);
+
+    // Se eliminan pedidos en estado CANCELED cuya última modificación o cancelación supere los 30 días
+    const resultado = await Pedido.deleteMany({
+      status: EstadoPedido.CANCELED,
+      updatedAt: { $lte: fechaLimite },
+    });
+
+    console.log(
+      `🗑️ [Purga Pedidos] Eliminadas ${resultado.deletedCount} órdenes canceladas con más de ${DIAS_RETENCION} días de antigüedad.`
+    );
+
+    return resultado.deletedCount;
   }
 }

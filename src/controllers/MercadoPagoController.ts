@@ -297,9 +297,9 @@ export class MercadoPagoController {
                     session.endSession();
 
                     // Notificar a administradores (sin stock disponible)
-                    OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
-                        console.error('⚠️ [MP Webhook] Error notificando admins (sin stock):', err)
-                    );
+                    // OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                    //     console.error('⚠️ [MP Webhook] Error notificando admins (sin stock):', err)
+                    // );
 
                     return;
                 }
@@ -325,9 +325,9 @@ export class MercadoPagoController {
                 }
 
                 // Notificar a administradores
-                OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
-                    console.error('⚠️ [MP Webhook] Error notificando admins por correo:', err)
-                );
+                // OrderEmail.notifyAdminsOnNewOrder(order).catch(err => 
+                //     console.error('⚠️ [MP Webhook] Error notificando admins por correo:', err)
+                // );
 
                 console.log(`✅ [MP Webhook] Orden ${order.orderNumber} aprobada e inflada con éxito.`);
             } else if (status === 'rejected' || status === 'cancelled') {

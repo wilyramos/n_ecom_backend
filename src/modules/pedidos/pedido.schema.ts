@@ -84,6 +84,22 @@ export const crearPedidoSchema = z.object({
   }),
 });
 
+export const procesarCargoCulqiSchema = z.object({
+  body: z.object({
+    orderNumber: z.string().min(1, { message: 'El número de orden es requerido' }),
+    culqiToken: z.string().min(1, { message: 'El token de pago es requerido' }),
+    deviceFingerPrintId: z.string().optional(),
+    installments: z.number().int().min(1).max(36).default(1),
+    parameters3DS: z.object({
+      eci: z.string().optional(),
+      xid: z.string().optional(),
+      cavv: z.string().optional(),
+      protocolVersion: z.string().optional(),
+      directoryServerTransactionId: z.string().optional(),
+    }).optional()
+  })
+});
+
 export const actualizarEstadoPedidoSchema = z.object({
   params: z.object({
     id: z.string().regex(objectIdRegex, { message: 'ID de pedido no válido' }),

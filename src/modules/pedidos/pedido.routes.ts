@@ -24,6 +24,12 @@ router.post(
 // Procesar cobro directo Culqi con token
 router.post('/culqi-charge', authenticateOptional, pedidoController.procesarCargoCulqi);
 
+router.post(
+  '/:orderNumber/cancel',
+  authenticateOptional,
+  pedidoController.cancelarPedidoManual
+);
+
 // Mis pedidos del cliente logueado (incluye históricos por email)
 router.get('/mis-pedidos', authenticate, pedidoController.obtenerMisPedidos);
 

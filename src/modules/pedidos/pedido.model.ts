@@ -1,5 +1,3 @@
-// File: backend/src/modules/pedidos/pedido.model.ts
-
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -71,6 +69,15 @@ export interface IItemPedido {
   imagen?: string;
 }
 
+export interface IPaymentDetails {
+  brand?: string;
+  lastFour?: string;
+  cardType?: string;
+  issuerName?: string;
+  installments?: number;
+  paymentMethod?: string;
+}
+
 export interface IInfoPago {
   provider: string;
   method?: string;
@@ -79,6 +86,7 @@ export interface IInfoPago {
   paymentCode?: string;
   status: EstadoPago;
   paidAt?: Date;
+  details?: IPaymentDetails;
   gatewayData?: Record<string, any>;
 }
 
@@ -148,6 +156,15 @@ const itemPedidoSchema = new Schema<IItemPedido>({
   imagen: { type: String },
 }, { _id: false });
 
+const paymentDetailsSchema = new Schema<IPaymentDetails>({
+  brand: { type: String },
+  lastFour: { type: String },
+  cardType: { type: String },
+  issuerName: { type: String },
+  installments: { type: Number },
+  paymentMethod: { type: String },
+}, { _id: false });
+
 const infoPagoSchema = new Schema<IInfoPago>({
   provider: { type: String, required: true },
   method: { type: String },
@@ -156,6 +173,7 @@ const infoPagoSchema = new Schema<IInfoPago>({
   paymentCode: { type: String },
   status: { type: String, enum: Object.values(EstadoPago), default: EstadoPago.PENDING },
   paidAt: { type: Date },
+  details: { type: paymentDetailsSchema },
   gatewayData: { type: Schema.Types.Mixed },
 }, { _id: false });
 

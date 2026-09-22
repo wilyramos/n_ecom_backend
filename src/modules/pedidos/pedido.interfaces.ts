@@ -1,5 +1,3 @@
-//File: backend/src/modules/pedidos/pedido.interfaces.ts
-
 import { Types } from 'mongoose';
 import { EstadoPedido, EstadoPago, TipoDocumento, TipoComprobante } from './pedido.model';
 
@@ -43,6 +41,15 @@ export interface IItemPedido {
   imagen?: string;
 }
 
+export interface IPaymentDetails {
+  brand?: string;
+  lastFour?: string;
+  cardType?: string;
+  issuerName?: string;
+  installments?: number;
+  paymentMethod?: string;
+}
+
 export interface IInfoPago {
   provider: string;
   method?: string;
@@ -51,7 +58,8 @@ export interface IInfoPago {
   paymentCode?: string;
   status: EstadoPago;
   paidAt?: Date;
-  gatewayData?: Record<string, unknown>; // 🚀 Tipado seguro, reemplaza al "any"
+  details?: IPaymentDetails;
+  gatewayData?: Record<string, unknown>;
 }
 
 export interface IHistorialEstado {
@@ -89,7 +97,7 @@ export interface IRespuestaPedidosPaginados<T> {
 export interface IRespuestaCrearPedido<T> {
   pedido: T;
   initPoint?: string | null;
-  culqiOrderId?: string | null; // 🚀 Necesario para enviar el ID a PagoEfectivo / Cuotéalo
+  culqiOrderId?: string | null;
 }
 
 export interface IEstadisticasPedidos {

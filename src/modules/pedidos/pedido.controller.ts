@@ -26,25 +26,34 @@ export class PedidoController {
     }
   };
 
-procesarCargoCulqi = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      // Extraemos los parameters3DS si existen
-      const { orderNumber, culqiToken, parameters3DS } = req.body;
-      const resultado = await this.pedidoService.procesarCargoCulqi(orderNumber, culqiToken, parameters3DS);
 
-      res.status(200).json({
-        success: true,
-        message: 'Pago con Culqi procesado exitosamente',
-        data: resultado,
-      });
+  procesarCargoCulqi = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { orderNumber, culqiToken, parameters3DS, deviceFingerPrintId, installments } = req.body;
+      const resultado = await this.pedidoService.procesarCargoCulqi(
+        orderNumber, 
+        culqiToken, 
+        parameters3DS,
+        deviceFingerPrintId,
+        installments
+      );
+      res.status(200).json({ success: true, data: resultado });
     } catch (error: any) {
       const statusCode = error.statusCode || 500;
-      res.status(statusCode).json({
-        success: false,
-        message: error.message || 'Error interno al procesar el pago'
-      });
+      res.status(statusCode).json({ success: false, message: error.message });
     }
   };
+
+  cancelarPedidoManual = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { orderNumber } = req.params;
+      await this.pedidoService.cancelarPedidoAbordado(orderNumber);
+      res.status(200).json({ success: true, message: 'Pedido cancelado, stock liberado.' });
+    } catch (error) {
+      next(error);
+    }
+  };
+  
   obtenerPedidoPorId = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;

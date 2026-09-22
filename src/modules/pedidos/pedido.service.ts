@@ -80,20 +80,30 @@ export class PedidoService {
     try {
       const fullAddress =
         pedido.deliveryMethod === 'pickup'
-          ? 'Recojo en Tienda'
-          : `${pedido.shippingAddress.direccion} (${pedido.shippingAddress.distrito}, ${pedido.shippingAddress.provincia})`;
+          ? 'Recojo en Tienda Oficial'
+          : `${pedido.shippingAddress.direccion} (${pedido.shippingAddress.distrito}, ${pedido.shippingAddress.provincia} - ${pedido.shippingAddress.departamento})`;
 
       const customerName = `${pedido.customerProfile.nombre} ${pedido.customerProfile.apellidos || ''}`.trim();
 
+      const itemsPayload = (pedido.items || []).map((it: any) => ({
+        nombre: it.nombre,
+        quantity: it.quantity,
+        price: it.price,
+        imagen: it.imagen,
+      }));
+
       await Promise.allSettled([
+        // 1. Correo al cliente
         OrderEmail.sendOrderConfirmationEmail({
           email: pedido.customerProfile.email,
           name: customerName,
           orderId: pedido.orderNumber,
           totalPrice: pedido.totalPrice,
           shippingMethod: fullAddress,
-          items: pedido.items as any,
+          items: itemsPayload,
         }),
+        // 2. Correo a los administradores activos
+        OrderEmail.notifyAdminsOnNewOrder(pedido),
       ]);
     } catch (error) {
       console.error(`⚠️ [PedidoService] Fallo enviando correos de orden #${pedido.orderNumber}:`, error);
@@ -702,7 +712,6 @@ export class PedidoService {
     const DIAS_RETENCION = 30;
     const fechaLimite = new Date(Date.now() - DIAS_RETENCION * 24 * 60 * 60 * 1000);
 
-    // Se eliminan pedidos en estado CANCELED cuya última modificación o cancelación supere los 30 días
     const resultado = await Pedido.deleteMany({
       status: EstadoPedido.CANCELED,
       updatedAt: { $lte: fechaLimite },

@@ -1,12 +1,15 @@
+// File: backend/src/modules/pedidos/gateways/culqi-gateway.service.ts
+
 import { IPaymentGatewayService, PaymentGatewayResult } from './payment-gateway.interface';
 import { IPedido } from '../pedido.model';
 import { CrearPedidoInput } from '../pedido.schema';
+import { AppError } from '../../../utils/AppError';
 
 interface CulqiOrderResponse {
-    id: string;
-    object: string;
-    amount: number;
-    currency_code: string;
+    id?: string;
+    object?: string;
+    amount?: number;
+    currency_code?: string;
     state?: string;
     user_message?: string;
     merchant_message?: string;
@@ -21,12 +24,12 @@ export class CulqiGatewayService implements IPaymentGatewayService {
 
         if (!process.env.CULQI_API_KEY) {
             console.error('🔴 [Culqi Gateway Error]: CULQI_API_KEY ausente en las variables de entorno.');
-            throw new Error('Configuración de pasarela incompleta: CULQI_API_KEY ausente.');
+            throw new AppError('Configuración de pasarela incompleta: CULQI_API_KEY ausente.', 500);
         }
 
         const cleanPhone = (data.customerProfile.telefono || '').replace(/\D/g, '').substring(0, 15);
         const finalPhone = cleanPhone.length >= 5 ? cleanPhone : '999999999';
-        
+
         console.log(`⚙️ [Culqi Gateway] Teléfono sanitizado: ${finalPhone}`);
 
         const culqiOrderPayload = {
@@ -41,12 +44,7 @@ export class CulqiGatewayService implements IPaymentGatewayService {
                 phone_number: finalPhone,
             },
             expiration_date: Math.floor(Date.now() / 1000) + (24 * 60 * 60),
-            
-            // 🔴 RESTAURADO: ESTA LÍNEA ES CRÍTICA PARA PAGOEFECTIVO / QR EN CULQI V4.
-            // Le dice a Culqi que deje la orden "abierta" para que el modal del frontend
-            // pueda adjuntarle el código CIP de PagoEfectivo sin lanzar un error 400.
             confirm: false,
-            
             metadata: {
                 pedidoId: pedido._id.toString(),
                 userId: userId || 'guest'
@@ -55,31 +53,41 @@ export class CulqiGatewayService implements IPaymentGatewayService {
 
         console.log(`📦 [Culqi Gateway] Payload a enviar:`, JSON.stringify(culqiOrderPayload, null, 2));
 
-        const culqiOrderRes = await fetch('https://api.culqi.com/v2/orders', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${process.env.CULQI_API_KEY}`,
-            },
-            body: JSON.stringify(culqiOrderPayload),
-        });
+        try {
+            const culqiOrderRes = await fetch('https://api.culqi.com/v2/orders', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${process.env.CULQI_API_KEY}`,
+                },
+                body: JSON.stringify(culqiOrderPayload),
+            });
 
-        const culqiOrderData = (await culqiOrderRes.json()) as CulqiOrderResponse;
+            const culqiOrderData = (await culqiOrderRes.json()) as CulqiOrderResponse;
 
-        if (!culqiOrderRes.ok || !culqiOrderData.id) {
-            console.error('🔴 [Culqi Gateway] Error detectado:', culqiOrderData);
-            throw new Error(
-                culqiOrderData.user_message || 
-                culqiOrderData.merchant_message || 
-                'No se pudo generar la orden de pago en Culqi.'
-            );
+            if (!culqiOrderRes.ok || !culqiOrderData.id) {
+                console.error('🔴 [Culqi Gateway] Error detectado:', culqiOrderData);
+
+                // Priorizar el mensaje amigable de Culqi para el usuario
+                const errorMessage =
+                    culqiOrderData.user_message ||
+                    culqiOrderData.merchant_message ||
+                    'No se pudo generar la orden de pago en Culqi.';
+
+                throw new AppError(errorMessage, 400);
+            }
+
+            console.log(`✅ [Culqi Gateway] Orden creada: ${culqiOrderData.id}`);
+
+            return {
+                gatewayOrderId: culqiOrderData.id,
+                gatewayData: culqiOrderData as unknown as Record<string, unknown>,
+            };
+        } catch (error: any) {
+            if (error instanceof AppError) {
+                throw error;
+            }
+            throw new AppError(error.message || 'Error de conexión con la pasarela de pago.', 400);
         }
-
-        console.log(`✅ [Culqi Gateway] Orden creada: ${culqiOrderData.id}`);
-
-        return {
-            gatewayOrderId: culqiOrderData.id,
-            gatewayData: culqiOrderData as unknown as Record<string, unknown>,
-        };
     }
 }

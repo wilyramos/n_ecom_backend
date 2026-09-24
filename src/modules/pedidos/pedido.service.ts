@@ -1,4 +1,7 @@
+// File: backend/src/modules/pedidos/pedido.service.ts
+
 import Pedido, { IPedido, EstadoPedido, EstadoPago } from './pedido.model';
+import { UsersService } from '../users/users.service';
 import { CrearPedidoInput } from './pedido.schema';
 import {
   IPedidoQueryParams,
@@ -49,7 +52,7 @@ export class PedidoService {
     finDia.setHours(23, 59, 59, 999);
 
     const conteo = await Pedido.countDocuments({
-      createdAt: { $gte: inicioDia,$lt: finDia },
+      createdAt: { $gte: inicioDia, $lt: finDia },
     });
 
     const secuencia = String(conteo + 1).padStart(4, '0');
@@ -93,7 +96,6 @@ export class PedidoService {
       }));
 
       await Promise.allSettled([
-        // 1. Correo al cliente
         OrderEmail.sendOrderConfirmationEmail({
           email: pedido.customerProfile.email,
           name: customerName,
@@ -102,7 +104,6 @@ export class PedidoService {
           shippingMethod: fullAddress,
           items: itemsPayload,
         }),
-        // 2. Correo a los administradores activos
         OrderEmail.notifyAdminsOnNewOrder(pedido),
       ]);
     } catch (error) {
@@ -110,7 +111,6 @@ export class PedidoService {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async confirmarPagoAprobado(pedido: IPedido, transactionId: string, gatewayData?: any): Promise<void> {
     if (pedido.payment.status === EstadoPago.APPROVED) return;
 
@@ -174,6 +174,8 @@ export class PedidoService {
         ...data.customerProfile,
         email: data.customerProfile.email.trim().toLowerCase(),
       },
+      receiverInfo: data.receiverInfo,
+      deliveryNotes: data.deliveryNotes,
       deliveryMethod: data.deliveryMethod,
       invoiceInfo: data.invoiceInfo,
       items: data.items.map((item) => ({
@@ -217,6 +219,20 @@ export class PedidoService {
     }
 
     await nuevoPedido.save();
+
+    // Sincronización desacoplada llamando al servicio del módulo Users
+    if (userId) {
+      UsersService.syncCheckoutProfile(userId, {
+        nombre: data.customerProfile.nombre,
+        apellidos: data.customerProfile.apellidos,
+        telefono: data.customerProfile.telefono,
+        tipoDocumento: data.customerProfile.tipoDocumento,
+        numeroDocumento: data.customerProfile.numeroDocumento,
+      }).catch((err) =>
+        console.error('⚠️ [PedidoService] Error sincronizando datos al perfil de usuario:', err)
+      );
+    }
+
     return { pedido: nuevoPedido, initPoint, culqiOrderId };
   }
 
@@ -245,21 +261,13 @@ export class PedidoService {
     deviceFingerPrintId?: string,
     installments: number = 1
   ) {
-    console.log(`\n💳 [procesarCargoCulqi] Iniciando para orden: ${orderNumber}, Token/Ref: ${culqiTokenOrOrder}`);
-    console.log(`🛡️ [procesarCargoCulqi] ¿Tiene parameters3DS?:`, !!parameters3DS);
-    if (parameters3DS) console.log(`🔍 [procesarCargoCulqi] Contenido 3DS:`, JSON.stringify(parameters3DS, null, 2));
-
     const pedido = await Pedido.findOne({ orderNumber: orderNumber.trim() });
 
     if (!pedido) throw Object.assign(new Error('No se encontró el pedido a procesar.'), { statusCode: 404 });
     if (pedido.payment.status === EstadoPago.APPROVED) return { pedido, status: 'approved' };
     if (!process.env.CULQI_API_KEY) throw Object.assign(new Error('Configuración incompleta: CULQI_API_KEY ausente.'), { statusCode: 500 });
 
-    // =======================================================================
-    // 1. CARGOS PREVIOS (chr_...)
-    // =======================================================================
     if (culqiTokenOrOrder.startsWith('chr_')) {
-      console.log(`🔍 [Culqi Service] Procesando ruta chr_...`);
       const fetchChargeRes = await fetch(`https://api.culqi.com/v2/charges/${culqiTokenOrOrder}`, {
         method: 'GET',
         headers: {
@@ -287,11 +295,7 @@ export class PedidoService {
       return { pedido, status: 'approved' };
     }
 
-    // =======================================================================
-    // 2. ÓRDENES DIFERIDAS (ord_...)
-    // =======================================================================
     if (culqiTokenOrOrder.startsWith('ord_')) {
-      console.log(`🔍 [Culqi Service] Procesando ruta ord_...`);
       const fetchOrderRes = await fetch(`https://api.culqi.com/v2/orders/${culqiTokenOrOrder}`, {
         method: 'GET',
         headers: {
@@ -339,10 +343,6 @@ export class PedidoService {
       throw Object.assign(new Error(userMessage), { statusCode: 400 });
     }
 
-    // =======================================================================
-    // 3. GENERACIÓN DE CARGO CON TOKEN (tkn_live_...) -> 3D Secure / Tarjeta
-    // =======================================================================
-    console.log(`🔍 [Culqi Service] Ejecutando POST /charges con Token (tkn_...): ${culqiTokenOrOrder}`);
     const amountInCents = Math.round(pedido.totalPrice * 100);
     const cleanPhone = (pedido.customerProfile.telefono || '').replace(/\D/g, '').substring(0, 15);
 
@@ -368,8 +368,6 @@ export class PedidoService {
       payload.authentication_3DS = parameters3DS;
     }
 
-    console.log(`📤 [Culqi POST Payload]:`, JSON.stringify(payload, null, 2));
-
     const culqiResponse = await fetch('https://api.culqi.com/v2/charges', {
       method: 'POST',
       headers: {
@@ -380,18 +378,13 @@ export class PedidoService {
     });
 
     const culqiData = (await culqiResponse.json()) as Record<string, any>;
-    console.log(`📥 [Culqi Response Status]: ${culqiResponse.status}`);
-    console.log(`📥 [Culqi Response Data]:`, JSON.stringify(culqiData, null, 2));
 
-    // Verificación 3DS: HTTP 200 y action_code REVIEW
     if (culqiResponse.status === 200 && culqiData.action_code === 'REVIEW') {
-      console.log(`⚠️ [Culqi Service] El banco requiere autenticación 3DS (REVIEW).`);
       pedido.payment.gatewayData = { ...(pedido.payment.gatewayData || {}), last3DSChallenge: culqiData };
       await pedido.save();
       return { pedido, status: 'requires_3ds' };
     }
 
-    // Validación Zero-Trust de Venta Exitosa
     const isSuccess =
       culqiResponse.status === 201 &&
       culqiData.object === 'charge' &&
@@ -399,7 +392,6 @@ export class PedidoService {
       (!culqiData.action_code || culqiData.action_code === '000');
 
     if (!isSuccess) {
-      console.error(`❌ [Culqi Service] El cargo fue rechazado por Culqi o el banco.`);
       pedido.status = EstadoPedido.CANCELED;
       pedido.payment.status = EstadoPago.REJECTED;
       pedido.payment.gatewayData = { ...(pedido.payment.gatewayData || {}), lastError: culqiData };
@@ -409,7 +401,6 @@ export class PedidoService {
       throw Object.assign(new Error(errorMessage), { statusCode: 400 });
     }
 
-    console.log(`✅ [Culqi Service] Venta exitosa aprobada ID: ${culqiData.id}`);
     await this.confirmarPagoAprobado(pedido, culqiData.id, culqiData);
     return { pedido, status: 'approved' };
   }
@@ -502,7 +493,7 @@ export class PedidoService {
     const cleanEmail = email.trim().toLowerCase();
     const result = await Pedido.updateMany(
       {
-        $or: [{ user: {$exists: false } }, { user: null }],
+        $or: [{ user: { $exists: false } }, { user: null }],
         'customerProfile.email': cleanEmail,
       },
       { $set: { user: new Types.ObjectId(userId) } }
@@ -716,10 +707,6 @@ export class PedidoService {
       status: EstadoPedido.CANCELED,
       updatedAt: { $lte: fechaLimite },
     });
-
-    console.log(
-      `🗑️ [Purga Pedidos] Eliminadas ${resultado.deletedCount} órdenes canceladas con más de ${DIAS_RETENCION} días de antigüedad.`
-    );
 
     return resultado.deletedCount;
   }

@@ -1,3 +1,5 @@
+// File: backend/src/modules/pedidos/pedido.model.ts
+
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -23,7 +25,6 @@ export enum TipoDocumento {
   CE = 'CE',
   RUC = 'RUC',
   PASSPORT = 'PASAPORTE',
-  OTHER = 'OTRO',
 }
 
 export enum TipoComprobante {
@@ -50,6 +51,14 @@ export interface IPerfilCliente {
   telefono: string;
   tipoDocumento: TipoDocumento;
   numeroDocumento: string;
+}
+
+export interface IInfoReceptor {
+  nombre: string;
+  apellidos: string;
+  telefono: string;
+  tipoDocumento?: TipoDocumento;
+  numeroDocumento?: string;
 }
 
 export interface IInfoFacturacion {
@@ -99,7 +108,9 @@ export interface IPedido extends Document {
   orderNumber: string;
   user?: Types.ObjectId;
   customerProfile: IPerfilCliente;
+  receiverInfo?: IInfoReceptor;
   deliveryMethod: 'shipping' | 'pickup';
+  deliveryNotes?: string;
   invoiceInfo?: IInfoFacturacion;
   items: IItemPedido[];
 
@@ -120,92 +131,127 @@ export interface IPedido extends Document {
 
 // ─── Sub-schemas ──────────────────────────────────────────────────────────────
 
-const direccionEnvioSchema = new Schema<IDireccionEnvio>({
-  departamento: { type: String, required: true },
-  provincia: { type: String, required: true },
-  distrito: { type: String, required: true },
-  direccion: { type: String, required: true },
-  numero: { type: String },
-  pisoDpto: { type: String },
-  referencia: { type: String },
-}, { _id: false });
+const direccionEnvioSchema = new Schema<IDireccionEnvio>(
+  {
+    departamento: { type: String, required: true },
+    provincia: { type: String, required: true },
+    distrito: { type: String, required: true },
+    direccion: { type: String, required: true },
+    numero: { type: String },
+    pisoDpto: { type: String },
+    referencia: { type: String },
+  },
+  { _id: false }
+);
 
-const perfilClienteSchema = new Schema<IPerfilCliente>({
-  nombre: { type: String, required: true },
-  apellidos: { type: String, required: true },
-  email: { type: String, required: true },
-  telefono: { type: String, required: true },
-  tipoDocumento: { type: String, enum: Object.values(TipoDocumento), required: true },
-  numeroDocumento: { type: String, required: true },
-}, { _id: false });
+const perfilClienteSchema = new Schema<IPerfilCliente>(
+  {
+    nombre: { type: String, required: true },
+    apellidos: { type: String, required: true },
+    email: { type: String, required: true },
+    telefono: { type: String, required: true },
+    tipoDocumento: { type: String, enum: Object.values(TipoDocumento), required: true },
+    numeroDocumento: { type: String, required: true },
+  },
+  { _id: false }
+);
 
-const infoFacturacionSchema = new Schema<IInfoFacturacion>({
-  type: { type: String, enum: Object.values(TipoComprobante), required: true },
-  documentNumber: { type: String, required: true },
-  businessName: { type: String },
-  address: { type: String },
-}, { _id: false });
+const infoReceptorSchema = new Schema<IInfoReceptor>(
+  {
+    nombre: { type: String, required: true },
+    apellidos: { type: String, required: true },
+    telefono: { type: String, required: true },
+    tipoDocumento: { type: String, enum: Object.values(TipoDocumento) },
+    numeroDocumento: { type: String },
+  },
+  { _id: false }
+);
 
-const itemPedidoSchema = new Schema<IItemPedido>({
-  productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
-  variantId: { type: Schema.Types.ObjectId },
-  variantAttributes: { type: Map, of: String },
-  quantity: { type: Number, required: true },
-  price: { type: Number, required: true },
-  nombre: { type: String, required: true },
-  imagen: { type: String },
-}, { _id: false });
+const infoFacturacionSchema = new Schema<IInfoFacturacion>(
+  {
+    type: { type: String, enum: Object.values(TipoComprobante), required: true },
+    documentNumber: { type: String, required: true },
+    businessName: { type: String },
+    address: { type: String },
+  },
+  { _id: false }
+);
 
-const paymentDetailsSchema = new Schema<IPaymentDetails>({
-  brand: { type: String },
-  lastFour: { type: String },
-  cardType: { type: String },
-  issuerName: { type: String },
-  installments: { type: Number },
-  paymentMethod: { type: String },
-}, { _id: false });
+const itemPedidoSchema = new Schema<IItemPedido>(
+  {
+    productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    variantId: { type: Schema.Types.ObjectId },
+    variantAttributes: { type: Map, of: String },
+    quantity: { type: Number, required: true },
+    price: { type: Number, required: true },
+    nombre: { type: String, required: true },
+    imagen: { type: String },
+  },
+  { _id: false }
+);
 
-const infoPagoSchema = new Schema<IInfoPago>({
-  provider: { type: String, required: true },
-  method: { type: String },
-  gatewayOrderId: { type: String },
-  transactionId: { type: String },
-  paymentCode: { type: String },
-  status: { type: String, enum: Object.values(EstadoPago), default: EstadoPago.PENDING },
-  paidAt: { type: Date },
-  details: { type: paymentDetailsSchema },
-  gatewayData: { type: Schema.Types.Mixed },
-}, { _id: false });
+const paymentDetailsSchema = new Schema<IPaymentDetails>(
+  {
+    brand: { type: String },
+    lastFour: { type: String },
+    cardType: { type: String },
+    issuerName: { type: String },
+    installments: { type: Number },
+    paymentMethod: { type: String },
+  },
+  { _id: false }
+);
 
-const historialEstadoSchema = new Schema<IHistorialEstado>({
-  status: { type: String, enum: Object.values(EstadoPedido), required: true },
-  changedAt: { type: Date, default: Date.now },
-}, { _id: false });
+const infoPagoSchema = new Schema<IInfoPago>(
+  {
+    provider: { type: String, required: true },
+    method: { type: String },
+    gatewayOrderId: { type: String },
+    transactionId: { type: String },
+    paymentCode: { type: String },
+    status: { type: String, enum: Object.values(EstadoPago), default: EstadoPago.PENDING },
+    paidAt: { type: Date },
+    details: { type: paymentDetailsSchema },
+    gatewayData: { type: Schema.Types.Mixed },
+  },
+  { _id: false }
+);
+
+const historialEstadoSchema = new Schema<IHistorialEstado>(
+  {
+    status: { type: String, enum: Object.values(EstadoPedido), required: true },
+    changedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
 
 // ─── Schema principal ─────────────────────────────────────────────────────────
 
-const pedidoSchema = new Schema<IPedido>({
-  orderNumber: { type: String, unique: true },
-  user: { type: Schema.Types.ObjectId, ref: 'User', required: false },
-  customerProfile: { type: perfilClienteSchema, required: true },
-  deliveryMethod: { type: String, enum: ['shipping', 'pickup'], default: 'shipping' },
-  invoiceInfo: { type: infoFacturacionSchema, required: false },
-  items: { type: [itemPedidoSchema], required: true },
+const pedidoSchema = new Schema<IPedido>(
+  {
+    orderNumber: { type: String, unique: true },
+    user: { type: Schema.Types.ObjectId, ref: 'User', required: false },
+    customerProfile: { type: perfilClienteSchema, required: true },
+    receiverInfo: { type: infoReceptorSchema, required: false },
+    deliveryMethod: { type: String, enum: ['shipping', 'pickup'], default: 'shipping' },
+    deliveryNotes: { type: String, required: false },
+    invoiceInfo: { type: infoFacturacionSchema, required: false },
+    items: { type: [itemPedidoSchema], required: true },
 
-  subtotal: { type: Number, required: true },
-  igv: { type: Number, required: true },
-  shippingCost: { type: Number, default: 0 },
-  recargoFinanciero: { type: Number, default: 0 },
-  totalPrice: { type: Number, required: true },
-  currency: { type: String, default: 'PEN' },
+    subtotal: { type: Number, required: true },
+    igv: { type: Number, required: true },
+    shippingCost: { type: Number, default: 0 },
+    recargoFinanciero: { type: Number, default: 0 },
+    totalPrice: { type: Number, required: true },
+    currency: { type: String, default: 'PEN' },
 
-  status: { type: String, enum: Object.values(EstadoPedido), default: EstadoPedido.AWAITING_PAYMENT },
-  statusHistory: { type: [historialEstadoSchema], default: [] },
-  shippingAddress: { type: direccionEnvioSchema, required: true },
-  payment: { type: infoPagoSchema, required: true },
-}, { timestamps: true });
-
-// ─── Índices ──────────────────────────────────────────────────────────────────
+    status: { type: String, enum: Object.values(EstadoPedido), default: EstadoPedido.AWAITING_PAYMENT },
+    statusHistory: { type: [historialEstadoSchema], default: [] },
+    shippingAddress: { type: direccionEnvioSchema, required: true },
+    payment: { type: infoPagoSchema, required: true },
+  },
+  { timestamps: true }
+);
 
 pedidoSchema.index({ user: 1 });
 pedidoSchema.index({ status: 1 });

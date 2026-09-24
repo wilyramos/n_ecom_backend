@@ -1,3 +1,5 @@
+// File: backend/src/modules/pedidos/pedido.interfaces.ts
+
 import { Types } from 'mongoose';
 import { EstadoPedido, EstadoPago, TipoDocumento, TipoComprobante } from './pedido.model';
 
@@ -22,6 +24,14 @@ export interface IPerfilCliente {
   telefono: string;
   tipoDocumento: TipoDocumento;
   numeroDocumento: string;
+}
+
+export interface IInfoReceptor {
+  nombre: string;
+  apellidos: string;
+  telefono: string;
+  tipoDocumento?: TipoDocumento;
+  numeroDocumento?: string;
 }
 
 export interface IInfoFacturacion {

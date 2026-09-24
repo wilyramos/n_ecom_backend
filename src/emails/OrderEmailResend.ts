@@ -366,7 +366,7 @@ export class OrderEmail {
             </div>
 
             <p style="margin-top:25px; font-size:13.5px; color:#71717a;">
-              Puedes consultar el avance de tu orden en cualquier momento ingresando tu número de pedido y correo en nuestra sección de tracking.
+              Puedes consultar el avance de tu orden en cualquier momento ingresando con tu correo y ver en la seccion de mis pedidos.
             </p>
           </div>
         `,

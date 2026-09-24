@@ -52,7 +52,7 @@ export class PedidoService {
     finDia.setHours(23, 59, 59, 999);
 
     const conteo = await Pedido.countDocuments({
-      createdAt: { $gte: inicioDia, $lt: finDia },
+      createdAt: { $gte: inicioDia,$lt: finDia },
     });
 
     const secuencia = String(conteo + 1).padStart(4, '0');
@@ -493,7 +493,7 @@ export class PedidoService {
     const cleanEmail = email.trim().toLowerCase();
     const result = await Pedido.updateMany(
       {
-        $or: [{ user: { $exists: false } }, { user: null }],
+        $or: [{ user: {$exists: false } }, { user: null }],
         'customerProfile.email': cleanEmail,
       },
       { $set: { user: new Types.ObjectId(userId) } }

@@ -1,3 +1,5 @@
+// File: backend/src/emails/OrderEmailResend.ts
+
 import { resend } from "../config/resend";
 import { baseEmailTemplate } from "./templates/baseEmailTemplate";
 import { IPedido, EstadoPedido } from "../modules/pedidos/pedido.model";
@@ -26,6 +28,7 @@ export interface IAdminNotificationParams {
   customerName: string;
   customerEmail: string;
   customerPhone?: string;
+  customerDocument?: string;
   orderId: string;
   totalPrice: number;
   shippingAddress: string;
@@ -143,6 +146,7 @@ export class OrderEmail {
     customerName,
     customerEmail,
     customerPhone,
+    customerDocument, // 👈 NUEVO
     orderId,
     totalPrice,
     shippingAddress,
@@ -185,6 +189,7 @@ export class OrderEmail {
               <p style="margin:4px 0; font-size:13.5px;"><strong style="color: #71717a; width: 90px; display: inline-block;">Cliente:</strong> <span style="color: #171411;">${customerName}</span></p>
               <p style="margin:4px 0; font-size:13.5px;"><strong style="color: #71717a; width: 90px; display: inline-block;">Email:</strong> <span style="color: #171411;">${customerEmail}</span></p>
               <p style="margin:4px 0; font-size:13.5px;"><strong style="color: #71717a; width: 90px; display: inline-block;">Teléfono:</strong> <span style="color: #171411;">${customerPhone || "No registrado"}</span></p>
+              <p style="margin:4px 0; font-size:13.5px;"><strong style="color: #71717a; width: 90px; display: inline-block;">Documento:</strong> <span style="color: #171411;">${customerDocument || "No especificado"}</span></p>
               <p style="margin:4px 0; font-size:13.5px;"><strong style="color: #71717a; width: 90px; display: inline-block;">Entrega:</strong> <span style="color: #171411;">${shippingAddress}</span></p>
             </div>
 
@@ -254,12 +259,14 @@ export class OrderEmail {
           : `${pedido.shippingAddress.direccion} (${pedido.shippingAddress.distrito}, ${pedido.shippingAddress.provincia} - ${pedido.shippingAddress.departamento})`;
 
       const fullName = `${pedido.customerProfile.nombre} ${pedido.customerProfile.apellidos || ""}`.trim();
+      const documentDetail = `${pedido.customerProfile.tipoDocumento || 'DOC'}: ${pedido.customerProfile.numeroDocumento}`; // 👈 NUEVO
 
       await OrderEmail.sendAdminOrderNotificationEmail({
         adminEmails,
         customerName: fullName,
         customerEmail: pedido.customerProfile.email,
         customerPhone: pedido.customerProfile.telefono,
+        customerDocument: documentDetail, // 👈 NUEVO
         orderId: pedido.orderNumber,
         totalPrice: pedido.totalPrice,
         shippingAddress: fullAddress,

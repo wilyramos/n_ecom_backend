@@ -3,6 +3,7 @@
 import Pedido, { IPedido, EstadoPedido, EstadoPago } from './pedido.model';
 import { UsersService } from '../users/users.service';
 import { CrearPedidoInput } from './pedido.schema';
+import { Counter } from '../../models/Counter';
 import {
   IPedidoQueryParams,
   IRespuestaPedidosPaginados,
@@ -38,6 +39,9 @@ const TRANSICIONES_VALIDAS: Record<EstadoPedido, EstadoPedido[]> = {
 };
 
 export class PedidoService {
+  /**
+   * Genera el identificador alfanumérico complejo para pasarelas (ej: 2609240004B705)
+   */
   private async generarNumeroPedido(): Promise<string> {
     const hoy = new Date();
     const year = hoy.getFullYear().toString().slice(-2);
@@ -52,13 +56,26 @@ export class PedidoService {
     finDia.setHours(23, 59, 59, 999);
 
     const conteo = await Pedido.countDocuments({
-      createdAt: { $gte: inicioDia,$lt: finDia },
+      createdAt: { $gte: inicioDia, $lt: finDia },
     });
 
     const secuencia = String(conteo + 1).padStart(4, '0');
     const randomSalt = crypto.randomBytes(2).toString('hex').toUpperCase();
 
     return `${fechaStr}${secuencia}${randomSalt}`;
+  }
+
+  /**
+   * Genera un código de pedido secuencial, corto y amigable para el cliente (ej: 10015)
+   */
+  private async generarCodigoPedidoLegible(): Promise<string> {
+    const counter = await Counter.findOneAndUpdate(
+      { name: 'PEDIDO_WEB' },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+    const baseNumber = 10000;
+    return String(baseNumber + counter.seq);
   }
 
   private calcularTotales(items: CrearPedidoInput['items'], shippingCost: number, provider: string) {
@@ -95,11 +112,14 @@ export class PedidoService {
         imagen: it.imagen,
       }));
 
+      // Usamos codigoPedido si existe para los correos, caso contrario fallback a orderNumber (órdenes antiguas)
+      const orderCodeToShow = pedido.codigoPedido || pedido.orderNumber;
+
       await Promise.allSettled([
         OrderEmail.sendOrderConfirmationEmail({
           email: pedido.customerProfile.email,
           name: customerName,
-          orderId: pedido.orderNumber,
+          orderId: orderCodeToShow,
           totalPrice: pedido.totalPrice,
           shippingMethod: fullAddress,
           items: itemsPayload,
@@ -107,7 +127,7 @@ export class PedidoService {
         OrderEmail.notifyAdminsOnNewOrder(pedido),
       ]);
     } catch (error) {
-      console.error(`⚠️ [PedidoService] Fallo enviando correos de orden #${pedido.orderNumber}:`, error);
+      console.error(`⚠️ [PedidoService] Fallo enviando correos de orden #${pedido.codigoPedido || pedido.orderNumber}:`, error);
     }
   }
 
@@ -161,6 +181,8 @@ export class PedidoService {
 
   async crearPedido(data: CrearPedidoInput, userId?: string): Promise<IRespuestaCrearPedido<IPedido>> {
     const orderNumber = await this.generarNumeroPedido();
+    const codigoPedido = await this.generarCodigoPedidoLegible();
+
     const { subtotal, igv, shippingCost, recargoFinanciero, totalPrice } = this.calcularTotales(
       data.items,
       data.shippingCost,
@@ -168,6 +190,7 @@ export class PedidoService {
     );
 
     const nuevoPedido = new Pedido({
+      codigoPedido,
       orderNumber,
       user: userId ? new Types.ObjectId(userId) : undefined,
       customerProfile: {
@@ -236,8 +259,16 @@ export class PedidoService {
     return { pedido: nuevoPedido, initPoint, culqiOrderId };
   }
 
-  async cancelarPedidoAbordado(orderNumber: string): Promise<void> {
-    const pedido = await Pedido.findOne({ orderNumber: orderNumber.trim() });
+  async cancelarPedidoAbordado(identificador: string): Promise<void> {
+    const cleanSearch = identificador.trim();
+    // Permite buscar por el código corto o el string transaccional largo
+    const pedido = await Pedido.findOne({
+      $or: [
+        { codigoPedido: cleanSearch },
+        { orderNumber: cleanSearch }
+      ]
+    });
+
     if (!pedido || pedido.status === EstadoPedido.CANCELED) return;
 
     const pagoPreviamenteAprobado = pedido.payment.status === EstadoPago.APPROVED;
@@ -250,12 +281,12 @@ export class PedidoService {
 
     if (pagoPreviamenteAprobado) {
       await InventoryService.reponerStockItems(pedido.items);
-      console.log(`📦 [Inventario] Stock repuesto para pedido cancelado #${orderNumber}`);
+      console.log(`📦 [Inventario] Stock repuesto para pedido cancelado #${pedido.codigoPedido || pedido.orderNumber}`);
     }
   }
 
   async procesarCargoCulqi(
-    orderNumber: string,
+    orderNumber: string, // Culqi utiliza este orderNumber largo en su payload
     culqiTokenOrOrder: string,
     parameters3DS?: Record<string, unknown>,
     deviceFingerPrintId?: string,
@@ -439,14 +470,15 @@ export class PedidoService {
     return pedido;
   }
 
-  async obtenerPedidoPorNumero(orderNumber: string): Promise<IPedido> {
-    const cleanSearch = orderNumber.trim();
+  async obtenerPedidoPorNumero(identificador: string): Promise<IPedido> {
+    const cleanSearch = identificador.trim();
     const alphanumericOnly = cleanSearch.replace(/[^a-zA-Z0-9]/g, '');
     const flexibleRegex = new RegExp(`^${alphanumericOnly.split('').join('-?')}$`, 'i');
 
     const pedido = await Pedido.findOne({
       $or: [
-        { orderNumber: cleanSearch },
+        { codigoPedido: cleanSearch }, // Permite buscar por "10015"
+        { orderNumber: cleanSearch },  // Permite buscar por "2609240004B705"
         { orderNumber: flexibleRegex },
         { 'payment.gatewayOrderId': cleanSearch },
         { 'payment.transactionId': cleanSearch },
@@ -454,13 +486,13 @@ export class PedidoService {
     }).populate('user', 'nombre email');
 
     if (!pedido) {
-      throw Object.assign(new Error(`No se encontró el pedido: ${orderNumber}`), { statusCode: 404 });
+      throw Object.assign(new Error(`No se encontró el pedido: ${identificador}`), { statusCode: 404 });
     }
     return pedido;
   }
 
-  async consultarTrackingPublico(orderNumber: string, emailOrDoc: string): Promise<IPedido> {
-    const cleanSearch = orderNumber.trim();
+  async consultarTrackingPublico(identificador: string, emailOrDoc: string): Promise<IPedido> {
+    const cleanSearch = identificador.trim();
     const alphanumericOnly = cleanSearch.replace(/[^a-zA-Z0-9]/g, '');
     const flexibleRegex = new RegExp(`^${alphanumericOnly.split('').join('-?')}$`, 'i');
     const docOrEmail = emailOrDoc.trim().toLowerCase();
@@ -469,6 +501,7 @@ export class PedidoService {
       $and: [
         {
           $or: [
+            { codigoPedido: cleanSearch }, // Permite consultar el tracking con el código legible
             { orderNumber: cleanSearch },
             { orderNumber: flexibleRegex },
             { 'payment.gatewayOrderId': cleanSearch },
@@ -493,7 +526,7 @@ export class PedidoService {
     const cleanEmail = email.trim().toLowerCase();
     const result = await Pedido.updateMany(
       {
-        $or: [{ user: {$exists: false } }, { user: null }],
+        $or: [{ user: { $exists: false } }, { user: null }],
         'customerProfile.email': cleanEmail,
       },
       { $set: { user: new Types.ObjectId(userId) } }
@@ -525,6 +558,7 @@ export class PedidoService {
 
     if (params.search) {
       filtro.$or = [
+        { codigoPedido: { $regex: params.search, $options: 'i' } }, // Permite buscar en el admin panel por 10015
         { orderNumber: { $regex: params.search, $options: 'i' } },
         { 'customerProfile.email': { $regex: params.search, $options: 'i' } },
         { 'customerProfile.numeroDocumento': { $regex: params.search, $options: 'i' } },
@@ -625,22 +659,23 @@ export class PedidoService {
       estadoAnterior !== EstadoPedido.CANCELED
     ) {
       await InventoryService.reponerStockItems(pedido.items);
-      console.log(`📦 [Inventario] Stock reabastecido para la orden cancelada #${pedido.orderNumber}`);
+      console.log(`📦 [Inventario] Stock reabastecido para la orden cancelada #${pedido.codigoPedido || pedido.orderNumber}`);
     }
 
     const pedidoActualizado = await pedido.save();
 
     if (nuevoEstado !== EstadoPedido.AWAITING_PAYMENT) {
       const customerName = `${pedidoActualizado.customerProfile.nombre} ${pedidoActualizado.customerProfile.apellidos || ''}`.trim();
+      const orderCodeToShow = pedidoActualizado.codigoPedido || pedidoActualizado.orderNumber;
 
       OrderEmail.sendStatusUpdateEmail({
         email: pedidoActualizado.customerProfile.email,
         name: customerName,
-        orderId: pedidoActualizado.orderNumber,
+        orderId: orderCodeToShow,
         newStatus: nuevoEstado,
         deliveryMethod: pedidoActualizado.deliveryMethod,
       }).catch((err) =>
-        console.error(`⚠️ [PedidoService] Fallo enviando correo de cambio de estado a #${pedidoActualizado.orderNumber}:`, err)
+        console.error(`⚠️ [PedidoService] Fallo enviando correo de cambio de estado a #${orderCodeToShow}:`, err)
       );
     }
 

@@ -105,6 +105,7 @@ export interface IHistorialEstado {
 }
 
 export interface IPedido extends Document {
+  codigoPedido: string;
   orderNumber: string;
   user?: Types.ObjectId;
   customerProfile: IPerfilCliente;
@@ -229,7 +230,8 @@ const historialEstadoSchema = new Schema<IHistorialEstado>(
 
 const pedidoSchema = new Schema<IPedido>(
   {
-    orderNumber: { type: String, unique: true },
+    codigoPedido: { type: String, unique: true, required: true },
+    orderNumber: { type: String, unique: true, required: true },
     user: { type: Schema.Types.ObjectId, ref: 'User', required: false },
     customerProfile: { type: perfilClienteSchema, required: true },
     receiverInfo: { type: infoReceptorSchema, required: false },
@@ -253,6 +255,10 @@ const pedidoSchema = new Schema<IPedido>(
   { timestamps: true }
 );
 
+// ─── Índices ──────────────────────────────────────────────────────────────────
+
+pedidoSchema.index({ codigoPedido: 1 });
+pedidoSchema.index({ orderNumber: 1 });
 pedidoSchema.index({ user: 1 });
 pedidoSchema.index({ status: 1 });
 pedidoSchema.index({ 'payment.transactionId': 1 });

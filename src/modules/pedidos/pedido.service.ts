@@ -74,7 +74,7 @@ export class PedidoService {
       { $inc: { seq: 1 } },
       { new: true, upsert: true }
     );
-    const baseNumber = 10000; // Base para que los códigos comiencen desde 10000
+    const baseNumber = 10000;
     return String(baseNumber + counter.seq);
   }
 
@@ -105,14 +105,13 @@ export class PedidoService {
 
       const customerName = `${pedido.customerProfile.nombre} ${pedido.customerProfile.apellidos || ''}`.trim();
 
-      const itemsPayload = (pedido.items || []).map((it: any) => ({
+      const itemsPayload = (pedido.items || []).map((it) => ({
         nombre: it.nombre,
         quantity: it.quantity,
         price: it.price,
         imagen: it.imagen,
       }));
 
-      // Usamos codigoPedido si existe para los correos, caso contrario fallback a orderNumber (órdenes antiguas)
       const orderCodeToShow = pedido.codigoPedido || pedido.orderNumber;
 
       await Promise.allSettled([
@@ -243,7 +242,6 @@ export class PedidoService {
 
     await nuevoPedido.save();
 
-    // Sincronización desacoplada llamando al servicio del módulo Users
     if (userId) {
       UsersService.syncCheckoutProfile(userId, {
         nombre: data.customerProfile.nombre,
@@ -261,7 +259,6 @@ export class PedidoService {
 
   async cancelarPedidoAbordado(identificador: string): Promise<void> {
     const cleanSearch = identificador.trim();
-    // Permite buscar por el código corto o el string transaccional largo
     const pedido = await Pedido.findOne({
       $or: [
         { codigoPedido: cleanSearch },
@@ -286,7 +283,7 @@ export class PedidoService {
   }
 
   async procesarCargoCulqi(
-    orderNumber: string, // Culqi utiliza este orderNumber largo en su payload
+    orderNumber: string,
     culqiTokenOrOrder: string,
     parameters3DS?: Record<string, unknown>,
     deviceFingerPrintId?: string,
@@ -463,7 +460,10 @@ export class PedidoService {
       };
     }
 
-    const pedido = await Pedido.findOne(filtro).populate('user', 'nombre email');
+    const pedido = await Pedido.findOne(filtro)
+      .populate('user', 'nombre email')
+      .populate('statusHistory.changedBy', 'nombre apellidos');
+
     if (!pedido) {
       throw new AppError(`No se encontró el pedido: ${pedidoId}`, 404);
     }
@@ -477,13 +477,15 @@ export class PedidoService {
 
     const pedido = await Pedido.findOne({
       $or: [
-        { codigoPedido: cleanSearch }, // Permite buscar por "10015"
-        { orderNumber: cleanSearch },  // Permite buscar por "2609240004B705"
+        { codigoPedido: cleanSearch },
+        { orderNumber: cleanSearch },
         { orderNumber: flexibleRegex },
         { 'payment.gatewayOrderId': cleanSearch },
         { 'payment.transactionId': cleanSearch },
       ],
-    }).populate('user', 'nombre email');
+    })
+      .populate('user', 'nombre email')
+      .populate('statusHistory.changedBy', 'nombre apellidos');
 
     if (!pedido) {
       throw Object.assign(new Error(`No se encontró el pedido: ${identificador}`), { statusCode: 404 });
@@ -501,7 +503,7 @@ export class PedidoService {
       $and: [
         {
           $or: [
-            { codigoPedido: cleanSearch }, // Permite consultar el tracking con el código legible
+            { codigoPedido: cleanSearch },
             { orderNumber: cleanSearch },
             { orderNumber: flexibleRegex },
             { 'payment.gatewayOrderId': cleanSearch },
@@ -558,7 +560,7 @@ export class PedidoService {
 
     if (params.search) {
       filtro.$or = [
-        { codigoPedido: { $regex: params.search, $options: 'i' } }, // Permite buscar en el admin panel por 10015
+        { codigoPedido: { $regex: params.search, $options: 'i' } },
         { orderNumber: { $regex: params.search, $options: 'i' } },
         { 'customerProfile.email': { $regex: params.search, $options: 'i' } },
         { 'customerProfile.numeroDocumento': { $regex: params.search, $options: 'i' } },
@@ -633,7 +635,7 @@ export class PedidoService {
     };
   }
 
-  async actualizarEstadoPedido(pedidoId: string, nuevoEstado: EstadoPedido): Promise<IPedido> {
+  async actualizarEstadoPedido(pedidoId: string, nuevoEstado: EstadoPedido, adminId?: string): Promise<IPedido> {
     const pedido = await Pedido.findById(pedidoId);
     if (!pedido) throw new AppError('Pedido no encontrado', 404);
 
@@ -651,7 +653,11 @@ export class PedidoService {
     }
 
     pedido.status = nuevoEstado;
-    pedido.statusHistory.push({ status: nuevoEstado, changedAt: new Date() });
+    pedido.statusHistory.push({
+      status: nuevoEstado,
+      changedAt: new Date(),
+      changedBy: adminId ? new Types.ObjectId(adminId) : undefined,
+    });
 
     if (
       pagoAprobadoPrevio &&
@@ -663,6 +669,8 @@ export class PedidoService {
     }
 
     const pedidoActualizado = await pedido.save();
+
+    await pedidoActualizado.populate('statusHistory.changedBy', 'nombre apellidos');
 
     if (nuevoEstado !== EstadoPedido.AWAITING_PAYMENT) {
       const customerName = `${pedidoActualizado.customerProfile.nombre} ${pedidoActualizado.customerProfile.apellidos || ''}`.trim();

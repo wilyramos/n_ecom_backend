@@ -102,6 +102,7 @@ export interface IInfoPago {
 export interface IHistorialEstado {
   status: EstadoPedido;
   changedAt: Date;
+  changedBy?: Types.ObjectId | any; // <-- AUDITORÍA: Guarda el usuario que hizo el cambio
 }
 
 export interface IPedido extends Document {
@@ -222,6 +223,7 @@ const historialEstadoSchema = new Schema<IHistorialEstado>(
   {
     status: { type: String, enum: Object.values(EstadoPedido), required: true },
     changedAt: { type: Date, default: Date.now },
+    changedBy: { type: Schema.Types.ObjectId, ref: 'User' }, // <-- AUDITORÍA
   },
   { _id: false }
 );

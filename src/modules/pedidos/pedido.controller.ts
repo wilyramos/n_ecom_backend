@@ -188,12 +188,16 @@ export class PedidoController {
     }
   };
 
-  actualizarEstadoPedido = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+ actualizarEstadoPedido = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
       const { status } = req.body;
+      
+      // Capturamos el ID del administrador/vendedor desde el token
+      const adminId = req.user?._id?.toString() || req.user?.id;
 
-      const pedidoActualizado = await this.pedidoService.actualizarEstadoPedido(id, status as EstadoPedido);
+      // Se lo enviamos al servicio
+      const pedidoActualizado = await this.pedidoService.actualizarEstadoPedido(id, status as EstadoPedido, adminId);
 
       res.status(200).json({
         success: true,

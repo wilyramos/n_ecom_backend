@@ -3,7 +3,7 @@
 import { Router } from 'express';
 import { PedidoController } from './pedido.controller';
 import { validateSchema } from '../../middleware/validate.middleware';
-import { authenticate, authenticateOptional, isAdminOrVendedor } from '../../middleware/auth';
+import { authenticate, authenticateOptional, isAdminOrVendedor } from '../../middleware/auth.middleware';
 import {
   crearPedidoSchema,
   obtenerPedidoPorIdSchema,

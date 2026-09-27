@@ -144,3 +144,34 @@ export const authorizeVendedor      = [authenticate, isVendedor];
 export const authorizeColaborador   = [authenticate, isColaborador];
 export const authorizeInternalStaff = [authenticate, isInternalStaff];
 export const authorizeAdminOrVendedor = [authenticate, isAdminOrVendedor];
+
+/**
+ * Verifica el JWT del header Authorization de forma opcional.
+ * Si no hay token o es inválido, continúa como invitado (req.user = undefined).
+ */
+export const authenticateOptional = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> => {
+    const token = extractToken(req.headers.authorization);
+
+    if (!token) {
+        return next();
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string);
+
+        if (typeof decoded === 'object' && decoded?.id) {
+            const user = await User.findById(decoded.id).select('-password');
+            if (user) {
+                req.user = user;
+            }
+        }
+        next();
+    } catch (error) {
+        console.warn('⚠️ Token opcional inválido o expirado, procediendo como invitado.');
+        next();
+    }
+};

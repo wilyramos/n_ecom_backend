@@ -70,11 +70,11 @@ export class PedidoService {
    */
   private async generarCodigoPedidoLegible(): Promise<string> {
     const counter = await Counter.findOneAndUpdate(
-      { name: 'PEDIDO_WEB' },
+      { name: 'PEDIDOS' },
       { $inc: { seq: 1 } },
       { new: true, upsert: true }
     );
-    const baseNumber = 10000;
+    const baseNumber = 10000; // Base para que los códigos comiencen desde 10000
     return String(baseNumber + counter.seq);
   }
 

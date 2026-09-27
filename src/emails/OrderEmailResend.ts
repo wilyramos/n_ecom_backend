@@ -267,7 +267,7 @@ export class OrderEmail {
         customerEmail: pedido.customerProfile.email,
         customerPhone: pedido.customerProfile.telefono,
         customerDocument: documentDetail, // 👈 NUEVO
-        orderId: pedido.orderNumber,
+        orderId: pedido.codigoPedido || pedido.orderNumber,
         totalPrice: pedido.totalPrice,
         shippingAddress: fullAddress,
         items: pedido.items.map((it) => ({

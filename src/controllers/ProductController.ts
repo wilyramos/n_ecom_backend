@@ -720,7 +720,9 @@ export class ProductController {
             }
             res.status(200).json(product);
         } catch (error) {
-
+            // Antes el catch estaba vacío y la petición quedaba colgada sin respuesta.
+            console.error('Error en getProductBySlug:', error);
+            res.status(500).json({ message: 'Error obteniendo el producto' });
         }
     }
 
@@ -1292,7 +1294,9 @@ export class ProductController {
 
     static async getAllProductsSlug(req: Request, res: Response) {
         try {
-            const products = await Product.find().select('slug updatedAt')
+            // Usado por el sitemap: solo productos activos.
+            // $ne: false incluye documentos antiguos sin el campo (el default del schema es true).
+            const products = await Product.find({ isActive: { $ne: false } }).select('slug updatedAt')
             res.status(200).json(products);
         } catch (error) {
             res.status(500).json({ message: 'Error fetching all products slug' });
@@ -1923,6 +1927,13 @@ export class ProductController {
             // 1. RESOLVER CONTEXTO
             const context = await ProductController.resolveContext(slugArray);
 
+            // Slugs de la URL que no corresponden a la categoría/marca/línea efectiva
+            // (inexistentes o repetidos). El frontend los usa para responder 404.
+            const effectiveSlugs = [context.category, context.brand, context.line]
+                .filter(Boolean)
+                .map((entity: any) => entity.slug);
+            const unresolvedSlugs = slugArray.filter((slug: string) => !effectiveSlugs.includes(slug));
+
             const pipeline: any[] = [];
 
             // =================================================================
@@ -2127,6 +2138,11 @@ export class ProductController {
                     categoryName: context.category ? (context.category as any).nombre : null,
                     brandName: context.brand ? (context.brand as any).nombre : null,
                     lineName: context.line ? (context.line as any).nombre : null,
+                    // SEO: slugs resueltos (para canonical normalizado) y slugs no reconocidos (para 404)
+                    categorySlug: context.category ? (context.category as any).slug : null,
+                    brandSlug: context.brand ? (context.brand as any).slug : null,
+                    lineSlug: context.line ? (context.line as any).slug : null,
+                    unresolvedSlugs,
                     searchQuery: searchTerm || null
                 },
                 isFallback: false

@@ -2313,7 +2313,8 @@ export class ProductController {
                     lines: data.lines || [],
                     categories: data.categories || [],
                     atributos: data.atributos || [],
-                    price: data.priceRangeFacet[0] ? [{ min: data.priceRangeFacet[0].min, max: data.priceRangeFacet[0].max }] : []
+                    // El $facet se llama "price" (antes se leía "priceRangeFacet", inexistente → 500)
+                    price: data.price?.[0] ? [{ min: data.price[0].min, max: data.price[0].max }] : []
                 },
                 context: {
                     categoryName: "Lo Último",

@@ -653,6 +653,17 @@ export class PedidoService {
     if (params.paymentProvider && params.paymentProvider !== 'all') filtro['payment.provider'] = params.paymentProvider;
     if (params.deliveryMethod && params.deliveryMethod !== 'all') filtro.deliveryMethod = params.deliveryMethod;
 
+    if (params.cupon && params.cupon !== 'all') {
+      if (params.cupon === 'con') {
+        filtro['cupon.codigo'] = { $exists: true, $nin: [null, ''] };
+      } else if (params.cupon === 'sin') {
+        filtro['cupon.codigo'] = { $in: [null, ''] };
+      } else {
+        // Coincidencia exacta (sin regex) para no abrir inyección de patrones
+        filtro['cupon.codigo'] = params.cupon.trim().toUpperCase().slice(0, 30);
+      }
+    }
+
     if (params.search) {
       filtro.$or = [
         { codigoPedido: { $regex: params.search, $options: 'i' } },

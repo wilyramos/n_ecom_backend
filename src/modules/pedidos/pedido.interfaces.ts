@@ -87,6 +87,8 @@ export interface IPedidoQueryParams {
   userId?: string;
   paymentProvider?: string;
   deliveryMethod?: string;
+  /** 'con' = con cualquier cupón, 'sin' = sin cupón, o un código exacto */
+  cupon?: string;
   dateFrom?: string;
   dateTo?: string;
   search?: string;

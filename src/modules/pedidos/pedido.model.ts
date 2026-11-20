@@ -121,6 +121,9 @@ export interface IPedido extends Document {
   shippingCost: number;
   recargoFinanciero: number;
   descuentoEfectivo: number;
+  descuentoCupon: number;
+  /** Snapshot del cupón aplicado (el código puede cambiar o eliminarse después) */
+  cupon?: { codigo: string; tipo: string; valor: number; descuento: number };
   totalPrice: number;
   currency: string;
 
@@ -248,6 +251,14 @@ const pedidoSchema = new Schema<IPedido>(
     shippingCost: { type: Number, default: 0 },
     recargoFinanciero: { type: Number, default: 0 },
     descuentoEfectivo: { type: Number, default: 0 },
+    descuentoCupon: { type: Number, default: 0 },
+    cupon: {
+      codigo: { type: String, uppercase: true, trim: true },
+      tipo: { type: String },
+      valor: { type: Number },
+      descuento: { type: Number },
+      _id: false,
+    },
     totalPrice: { type: Number, required: true },
     currency: { type: String, default: 'PEN' },
 
@@ -268,6 +279,8 @@ pedidoSchema.index({ status: 1 });
 pedidoSchema.index({ 'payment.transactionId': 1 });
 pedidoSchema.index({ 'payment.gatewayOrderId': 1 });
 pedidoSchema.index({ 'payment.paymentCode': 1 });
+// Conteo de usos por cupón (lo consulta el módulo cupon)
+pedidoSchema.index({ 'cupon.codigo': 1, status: 1 });
 pedidoSchema.index({ 'customerProfile.email': 1, user: 1 });
 
 const Pedido = mongoose.model<IPedido>('Pedido', pedidoSchema);

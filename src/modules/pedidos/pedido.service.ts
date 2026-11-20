@@ -17,6 +17,8 @@ import { OrderEmail } from '../../emails/OrderEmailResend';
 import { InventoryService } from '../inventory/inventory.service';
 import { AppError } from '../../utils/AppError';
 import Product from '../../models/Product';
+import { cuponService } from '../cupon/cupon.service';
+import { verificarPreciosContraBD } from './pedido-precios';
 
 const MP_SURCHARGE_RATE = 0.12;
 // Descuento fijo por unidad de iPhone al pagar en efectivo/transferencia
@@ -116,13 +118,17 @@ export class PedidoService {
     items: CrearPedidoInput['items'],
     shippingCost: number,
     provider: string,
-    descuentoEfectivo = 0
+    descuentoEfectivo = 0,
+    descuentoCupon = 0
   ) {
     const montoTotalItems = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+    // El recargo de la pasarela se calcula sobre lo que realmente se cobra por productos (con cupón)
+    const baseProductos = montoTotalItems - descuentoCupon;
     const recargoFinanciero =
-      provider === 'mercadopago' ? Number((montoTotalItems * MP_SURCHARGE_RATE).toFixed(2)) : 0;
+      provider === 'mercadopago' ? Number((baseProductos * MP_SURCHARGE_RATE).toFixed(2)) : 0;
 
-    const totalPrice = montoTotalItems - descuentoEfectivo + shippingCost + recargoFinanciero;
+    const totalPrice =
+      baseProductos - descuentoEfectivo + shippingCost + recargoFinanciero;
     const subtotal = Number((totalPrice / 1.18).toFixed(2));
     const igv = Number((totalPrice - subtotal).toFixed(2));
 
@@ -132,6 +138,7 @@ export class PedidoService {
       shippingCost,
       recargoFinanciero,
       descuentoEfectivo,
+      descuentoCupon,
       totalPrice: Number(totalPrice.toFixed(2)),
     };
   }
@@ -219,18 +226,49 @@ export class PedidoService {
   }
 
   async crearPedido(data: CrearPedidoInput, userId?: string): Promise<IRespuestaCrearPedido<IPedido>> {
+    // Precios: el servidor verifica contra la BD antes de calcular cualquier total o cobro
+    await verificarPreciosContraBD(data.items);
+
     const orderNumber = await this.generarNumeroPedido();
     const codigoPedido = await this.generarCodigoPedidoLegible();
 
     const esEfectivo = data.payment.provider.toLowerCase() === CASH_PROVIDER;
     const descuentoEfectivo = esEfectivo ? await this.calcularDescuentoEfectivo(data.items) : 0;
 
+    // Cupón: se valida y recalcula en servidor. Si no es válido, el pedido no se crea.
+    const cupon = data.cuponCodigo
+      ? await cuponService.calcularDescuento({
+          codigo: data.cuponCodigo,
+          items: data.items,
+          email: data.customerProfile.email,
+        })
+      : null;
+    const descuentoCupon = cupon?.descuento ?? 0;
+
     const { subtotal, igv, shippingCost, recargoFinanciero, totalPrice } = this.calcularTotales(
       data.items,
       data.shippingCost,
       data.payment.provider,
-      descuentoEfectivo
+      descuentoEfectivo,
+      descuentoCupon
     );
+
+    // Cupón + descuento de efectivo no pueden dejar el pedido en S/ 0 o negativo
+    if (totalPrice <= 0) {
+      throw new AppError(
+        'El total a pagar debe ser mayor a S/ 0.00. Revisa el cupón o el descuento aplicado.',
+        400
+      );
+    }
+
+    // Monto mínimo de cobro con tarjeta (Culqi). Configurable con CULQI_MIN_AMOUNT
+    const minimoCulqi = Number(process.env.CULQI_MIN_AMOUNT || 3);
+    if (data.payment.provider.toLowerCase() === 'culqi' && totalPrice < minimoCulqi) {
+      throw new AppError(
+        `El monto mínimo para pagar con tarjeta es S/ ${minimoCulqi.toFixed(2)}.`,
+        400
+      );
+    }
 
     const nuevoPedido = new Pedido({
       codigoPedido,
@@ -254,6 +292,8 @@ export class PedidoService {
       shippingCost,
       recargoFinanciero,
       descuentoEfectivo,
+      descuentoCupon,
+      cupon: cupon ?? undefined,
       totalPrice,
       currency: data.currency || 'PEN',
       status: EstadoPedido.AWAITING_PAYMENT,
@@ -286,6 +326,16 @@ export class PedidoService {
     }
 
     await nuevoPedido.save();
+
+    // Límites del cupón, verificados después de guardar para cubrir pedidos simultáneos
+    if (cupon) {
+      try {
+        await cuponService.confirmarUsoTrasGuardar(cupon.codigo, data.customerProfile.email);
+      } catch (error) {
+        await Pedido.deleteOne({ _id: nuevoPedido._id });
+        throw error;
+      }
+    }
 
     if (userId) {
       UsersService.syncCheckoutProfile(userId, {

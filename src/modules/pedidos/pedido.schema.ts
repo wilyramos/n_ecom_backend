@@ -114,6 +114,8 @@ export const crearPedidoSchema = z.object({
     }),
     shippingCost: z.number().nonnegative().default(0),
     currency: z.string().default('PEN'),
+    // Código de cupón opcional; el descuento se recalcula en servidor
+    cuponCodigo: z.string().trim().min(1).max(30).optional(),
   }).superRefine((body, ctx) => {
     const doc = body.customerProfile.numeroDocumento;
     if (body.customerProfile.tipoDocumento === TipoDocumento.DNI && !dniRegex.test(doc)) {

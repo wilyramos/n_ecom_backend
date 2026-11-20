@@ -692,8 +692,8 @@ export class PedidoService {
     if (!MANUAL_PAYMENT_PROVIDERS.includes(provider)) {
       throw new AppError('Solo se pueden confirmar manualmente los pagos en efectivo o transferencia.', 400);
     }
-    if (pedido.status === EstadoPedido.CANCELED) {
-      throw new AppError('No se puede confirmar el pago de un pedido cancelado.', 400);
+    if (pedido.status !== EstadoPedido.AWAITING_PAYMENT) {
+      throw new AppError('Solo se puede confirmar el pago de pedidos pendientes de pago.', 400);
     }
     if (pedido.payment.status === EstadoPago.APPROVED) {
       throw new AppError('Este pedido ya tiene el pago confirmado.', 400);

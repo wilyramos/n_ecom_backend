@@ -11,12 +11,22 @@ import {
 } from './cupon.schema';
 import { validateSchema } from '../../middleware/validate.middleware';
 import { authenticate, isAdmin } from '../../middleware/auth.middleware';
+import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
+// Límite por IP para evitar probar códigos en masa (trust proxy ya está activo en server.ts)
+const limitarValidacion = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { success: false, message: 'Demasiados intentos con cupones. Intenta de nuevo en unos minutos.' },
+});
+
 // ── PÚBLICO (checkout) ────────────────────────────────────────────────────────
 // Va antes de /:id para que "validar" no se tome como un id
-router.post('/validar', validateSchema(validarCuponSchema), cuponController.validar);
+router.post('/validar', limitarValidacion, validateSchema(validarCuponSchema), cuponController.validar);
 
 // ── PRIVADO (panel administrativo) ────────────────────────────────────────────
 router.get('/', authenticate, isAdmin, validateSchema(listarCuponesSchema), cuponController.listar);

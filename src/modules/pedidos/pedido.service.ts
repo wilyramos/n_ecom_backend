@@ -261,6 +261,15 @@ export class PedidoService {
       );
     }
 
+    // Monto mínimo de cobro con tarjeta (Culqi). Configurable con CULQI_MIN_AMOUNT
+    const minimoCulqi = Number(process.env.CULQI_MIN_AMOUNT || 3);
+    if (data.payment.provider.toLowerCase() === 'culqi' && totalPrice < minimoCulqi) {
+      throw new AppError(
+        `El monto mínimo para pagar con tarjeta es S/ ${minimoCulqi.toFixed(2)}.`,
+        400
+      );
+    }
+
     const nuevoPedido = new Pedido({
       codigoPedido,
       orderNumber,
@@ -317,6 +326,16 @@ export class PedidoService {
     }
 
     await nuevoPedido.save();
+
+    // Límites del cupón, verificados después de guardar para cubrir pedidos simultáneos
+    if (cupon) {
+      try {
+        await cuponService.confirmarUsoTrasGuardar(cupon.codigo, data.customerProfile.email);
+      } catch (error) {
+        await Pedido.deleteOne({ _id: nuevoPedido._id });
+        throw error;
+      }
+    }
 
     if (userId) {
       UsersService.syncCheckoutProfile(userId, {

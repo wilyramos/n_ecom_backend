@@ -199,6 +199,29 @@ export class CuponService {
     };
   }
 
+  /**
+   * Se llama DESPUÉS de guardar el pedido. Recuenta los usos incluyendo el propio pedido:
+   * si otro pedido simultáneo también entró, los dos cuentan y el límite nunca se supera.
+   * Lanza AppError si el límite se superó; el llamador debe eliminar ese pedido.
+   */
+  async confirmarUsoTrasGuardar(codigo: string, email: string): Promise<void> {
+    const cupon = await Cupon.findOne({ codigo: codigo.trim().toUpperCase() }).lean();
+    if (!cupon) return;
+
+    if (cupon.usosMaximos) {
+      const usos = await this.contarUsos(cupon.codigo);
+      if (usos > cupon.usosMaximos) {
+        throw new AppError('Este cupón ya alcanzó su límite de usos', 400);
+      }
+    }
+    if (cupon.usosPorCliente) {
+      const usosCliente = await this.contarUsos(cupon.codigo, email);
+      if (usosCliente > cupon.usosPorCliente) {
+        throw new AppError('Ya usaste este cupón el máximo de veces permitido', 400);
+      }
+    }
+  }
+
   // ── HELPERS PRIVADOS ──────────────────────────────────────────────────────
 
   /** Suma de los ítems a los que aplica el cupón (según alcance) */

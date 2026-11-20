@@ -2,12 +2,15 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { cuponService } from './cupon.service';
+import { verificarPreciosContraBD } from '../pedidos/pedido-precios';
 
 export class CuponController {
   // ── PÚBLICO (checkout) ────────────────────────────────────────────────────
 
   validar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      // El descuento se calcula con los precios reales de BD, igual que al crear el pedido
+      await verificarPreciosContraBD(req.body.items);
       const resultado = await cuponService.calcularDescuento({
         codigo: req.body.codigo,
         email: req.body.email,

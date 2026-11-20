@@ -106,6 +106,8 @@ export const validarCuponSchema = z.object({
       .array(
         z.object({
           productId: z.string().regex(objectIdRegex, { message: 'ID de producto no válido' }),
+          variantId: z.string().regex(objectIdRegex, { message: 'ID de variante no válido' }).optional(),
+          nombre: z.string().trim().optional(),
           quantity: z.number().int().positive(),
           price: z.number().nonnegative(),
         })

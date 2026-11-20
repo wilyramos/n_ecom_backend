@@ -18,6 +18,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { AppError } from '../../utils/AppError';
 import Product from '../../models/Product';
 import { cuponService } from '../cupon/cupon.service';
+import { verificarPreciosContraBD } from './pedido-precios';
 
 const MP_SURCHARGE_RATE = 0.12;
 // Descuento fijo por unidad de iPhone al pagar en efectivo/transferencia
@@ -225,6 +226,9 @@ export class PedidoService {
   }
 
   async crearPedido(data: CrearPedidoInput, userId?: string): Promise<IRespuestaCrearPedido<IPedido>> {
+    // Precios: el servidor verifica contra la BD antes de calcular cualquier total o cobro
+    await verificarPreciosContraBD(data.items);
+
     const orderNumber = await this.generarNumeroPedido();
     const codigoPedido = await this.generarCodigoPedidoLegible();
 

@@ -253,6 +253,14 @@ export class PedidoService {
       descuentoCupon
     );
 
+    // Cupón + descuento de efectivo no pueden dejar el pedido en S/ 0 o negativo
+    if (totalPrice <= 0) {
+      throw new AppError(
+        'El total a pagar debe ser mayor a S/ 0.00. Revisa el cupón o el descuento aplicado.',
+        400
+      );
+    }
+
     const nuevoPedido = new Pedido({
       codigoPedido,
       orderNumber,

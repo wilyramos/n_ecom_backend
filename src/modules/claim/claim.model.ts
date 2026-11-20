@@ -27,6 +27,7 @@ export interface IClaimAdminResolution {
     estado: ClaimStatus;
     respuestaProveedor?: string;
     fechaRespuesta?: Date;
+    ultimoRecordatorioAdmin?: Date;
 }
 
 export interface IClaim extends Document {
@@ -65,7 +66,8 @@ const claimSchema = new Schema<IClaim>(
         resolution: {
             estado: { type: String, enum: ['Pendiente', 'En Proceso', 'Resuelto'], default: 'Pendiente' },
             respuestaProveedor: { type: String, trim: true, default: '' },
-            fechaRespuesta: { type: Date }
+            fechaRespuesta: { type: Date },
+            ultimoRecordatorioAdmin: { type: Date }
         }
     },
     { timestamps: true }

@@ -1,11 +1,13 @@
 import cron from 'node-cron';
 import { PedidoService } from '../modules/pedidos/pedido.service';
+import { ClaimService } from '../modules/claim/claim.service';
 
 export class CronService {
   private static pedidoService = new PedidoService();
   private static isRunningPowerpay = false;
   private static isRunningGlobal = false;
   private static isRunningPurge = false;
+  private static isRunningClaimReminders = false;
 
   static init(): void {
     console.log('⏰ [Cron Service] Inicializando tareas programadas...');
@@ -61,6 +63,22 @@ export class CronService {
       timezone: 'America/Lima',
     });
 
-    console.log('✅ [Cron Service] Cron Powerpay (30m), Global (03:00 AM) y Purga Canceladas (Día 1 y 16, 05:00 AM) configurados.');
+    // 4. Recordatorio de reclamos sin atender: Todos los días a las 9:00 AM (Hora Perú)
+    cron.schedule('0 9 * * *', async () => {
+      if (CronService.isRunningClaimReminders) return;
+      CronService.isRunningClaimReminders = true;
+      try {
+        const enviados = await ClaimService.notificarReclamosSinAtender();
+        if (enviados > 0) console.log(`📣 [Cron Service] Recordatorios de reclamos enviados a administradores: ${enviados}`);
+      } catch (error) {
+        console.error('💥 [Cron Error] Fallo al enviar recordatorios de reclamos sin atender:', error);
+      } finally {
+        CronService.isRunningClaimReminders = false;
+      }
+    }, {
+      timezone: 'America/Lima',
+    });
+
+    console.log('✅ [Cron Service] Cron Powerpay (30m), Global (03:00 AM), Purga Canceladas (Día 1 y 16, 05:00 AM) y Recordatorio de Reclamos (09:00 AM) configurados.');
   }
 }

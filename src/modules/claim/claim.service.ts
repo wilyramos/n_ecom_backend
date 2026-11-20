@@ -1,8 +1,70 @@
 // File: backend/src/modules/claim/claim.service.ts
 import Claim, { IClaim } from './claim.model';
 import { AppError } from '../../utils/AppError';
+import { ClaimEmail } from '../../emails/ClaimEmailResend';
+
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 export class ClaimService {
+    /**
+     * Días sin atención tras los cuales se vuelve a avisar a los administradores (env CLAIM_REMINDER_DAYS, por defecto 3)
+     */
+    static get diasRecordatorio(): number {
+        const dias = parseInt(process.env.CLAIM_REMINDER_DAYS || '', 10);
+        return Number.isFinite(dias) && dias > 0 ? dias : 3;
+    }
+
+    /**
+     * Recuerda a los administradores los reclamos no resueltos y sin respuesta reciente.
+     * Un reclamo cuenta como "sin atender" si su última actividad (registro, última respuesta o último recordatorio)
+     * tiene más de `dias` días. Cada reclamo se reserva de forma atómica antes de enviar el correo, así que
+     * ejecuciones duplicadas del cron no generan avisos repetidos.
+     */
+    static async notificarReclamosSinAtender(dias: number = ClaimService.diasRecordatorio): Promise<number> {
+        const cutoff = new Date(Date.now() - dias * DIA_MS);
+        const sinUltimoAviso = [
+            { 'resolution.ultimoRecordatorioAdmin': { $exists: false } },
+            { 'resolution.ultimoRecordatorioAdmin': null },
+            { 'resolution.ultimoRecordatorioAdmin': { $lte: cutoff } }
+        ];
+
+        const candidatos = await Claim.find({
+            'resolution.estado': { $ne: 'Resuelto' },
+            createdAt: { $lte: cutoff },
+            $or: sinUltimoAviso
+        });
+
+        const pendientes = candidatos.filter((claim) => {
+            const ultimaActividad = Math.max(
+                new Date(claim.createdAt).getTime(),
+                claim.resolution?.fechaRespuesta ? new Date(claim.resolution.fechaRespuesta).getTime() : 0,
+                claim.resolution?.ultimoRecordatorioAdmin ? new Date(claim.resolution.ultimoRecordatorioAdmin).getTime() : 0
+            );
+            return ultimaActividad <= cutoff.getTime();
+        });
+
+        let enviados = 0;
+        for (const candidato of pendientes) {
+            // Reserva atómica: solo un proceso puede avisar sobre este reclamo en esta ventana
+            const reservado = await Claim.findOneAndUpdate(
+                { _id: candidato._id, 'resolution.estado': { $ne: 'Resuelto' }, $or: sinUltimoAviso },
+                { $set: { 'resolution.ultimoRecordatorioAdmin': new Date() } },
+                { new: true }
+            );
+            if (!reservado) continue;
+
+            const envio = await ClaimEmail.notifyAdminsOnNewClaim(reservado, { diasSinAtender: dias });
+            if (envio.success) {
+                enviados++;
+            } else {
+                // Si el correo no salió, libera la reserva para reintentar en la siguiente ejecución
+                await Claim.updateOne({ _id: reservado._id }, { $unset: { 'resolution.ultimoRecordatorioAdmin': 1 } });
+            }
+        }
+
+        return enviados;
+    }
+
     /**
      * Genera el correlativo anual incremental según el estándar de INDECOPI
      */
@@ -45,7 +107,14 @@ export class ClaimService {
             fechaRespuesta: undefined
         };
 
-        return await new Claim(data).save();
+        const claim = await new Claim(data).save();
+
+        // Aviso a los administradores; un fallo de correo no debe revertir el registro
+        ClaimEmail.notifyAdminsOnNewClaim(claim).catch((error) =>
+            console.error(`⚠️ [ClaimService] Error en notificación a administradores (${claim.correlativo}):`, error)
+        );
+
+        return claim;
     }
 
     /**
@@ -111,17 +180,32 @@ export class ClaimService {
             throw new AppError('La respuesta institucional debe contener una explicación clara de al menos 20 caracteres.', 400);
         }
 
+        const current = await Claim.findById(id).select('resolution.estado resolution.respuestaProveedor').lean();
+        if (!current) throw new AppError('No se pudo encontrar el reclamo para actualizar.', 404);
+
+        const nuevaRespuesta = respuestaProveedor.trim();
+        const estadoCambio = current.resolution?.estado !== estado;
+        const respuestaCambio = (current.resolution?.respuestaProveedor || '') !== nuevaRespuesta;
+
         const updateData: any = {
             'resolution.estado': estado,
-            'resolution.respuestaProveedor': respuestaProveedor.trim()
+            'resolution.respuestaProveedor': nuevaRespuesta
         };
 
-        if (estado === 'Resuelto') {
+        if (estado === 'Resuelto' || respuestaCambio) {
             updateData['resolution.fechaRespuesta'] = new Date();
         }
 
         const claim = await Claim.findByIdAndUpdate(id, { $set: updateData }, { new: true, runValidators: true });
         if (!claim) throw new AppError('No se pudo encontrar el reclamo para actualizar.', 404);
+
+        // Notifica al consumidor solo si cambió el estado y/o la respuesta
+        if (estadoCambio || respuestaCambio) {
+            const envio = await ClaimEmail.sendResponseToConsumer(claim);
+            if (!envio.success) {
+                console.warn(`⚠️ [ClaimService] No se pudo notificar al consumidor del reclamo ${claim.correlativo}.`);
+            }
+        }
 
         return claim;
     }

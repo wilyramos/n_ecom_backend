@@ -16,8 +16,13 @@ import { PaymentGatewayFactory } from './gateways/payment-gateway.factory';
 import { OrderEmail } from '../../emails/OrderEmailResend';
 import { InventoryService } from '../inventory/inventory.service';
 import { AppError } from '../../utils/AppError';
+import Product from '../../models/Product';
 
 const MP_SURCHARGE_RATE = 0.12;
+// Descuento fijo por unidad de iPhone al pagar en efectivo/transferencia
+const CASH_DISCOUNT_IPHONE = 100;
+const CASH_PROVIDER = 'efectivo';
+const MANUAL_PAYMENT_PROVIDERS = [CASH_PROVIDER, 'transferencia'];
 
 interface StatsAggregationResult {
   ventasAprobadas: Array<{ montoTotal: number; conteoAprobados: number }>;
@@ -78,12 +83,46 @@ export class PedidoService {
     return String(baseNumber + counter.seq);
   }
 
-  private calcularTotales(items: CrearPedidoInput['items'], shippingCost: number, provider: string) {
+  /**
+   * Calcula el descuento de pago en efectivo: S/ 100 por unidad de productos
+   * de la categoría iPhone. Se recalcula en servidor con la categoría real
+   * de la base de datos; nunca se confía en lo que envía el cliente.
+   */
+  private async calcularDescuentoEfectivo(items: CrearPedidoInput['items']): Promise<number> {
+    const ids = [...new Set(items.map((item) => item.productId))].map((id) => new Types.ObjectId(id));
+    const productos = await Product.find({ _id: { $in: ids } })
+      .select('_id categoria')
+      .populate('categoria', 'nombre slug')
+      .lean();
+
+    const esIphone = (categoria: any) => {
+      const nombre = String(categoria?.nombre ?? '').toLowerCase().replace(/[\s\-_]+/g, '');
+      const slug = String(categoria?.slug ?? '').toLowerCase().replace(/[\s\-_]+/g, '');
+      return nombre.includes('iphone') || slug.includes('iphone');
+    };
+
+    const iphoneIds = new Set(
+      productos.filter((p: any) => esIphone(p.categoria)).map((p: any) => String(p._id))
+    );
+
+    const unidadesIphone = items
+      .filter((item) => iphoneIds.has(item.productId))
+      .reduce((acc, item) => acc + item.quantity, 0);
+
+    return unidadesIphone * CASH_DISCOUNT_IPHONE;
+  }
+
+  private calcularTotales(
+    items: CrearPedidoInput['items'],
+    shippingCost: number,
+    provider: string,
+    descuentoEfectivo = 0
+  ) {
     const montoTotalItems = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
     const recargoFinanciero =
       provider === 'mercadopago' ? Number((montoTotalItems * MP_SURCHARGE_RATE).toFixed(2)) : 0;
 
-    const totalPrice = montoTotalItems + shippingCost + recargoFinanciero;
+    const totalPrice = montoTotalItems - descuentoEfectivo + shippingCost + recargoFinanciero;
     const subtotal = Number((totalPrice / 1.18).toFixed(2));
     const igv = Number((totalPrice - subtotal).toFixed(2));
 
@@ -92,6 +131,7 @@ export class PedidoService {
       igv,
       shippingCost,
       recargoFinanciero,
+      descuentoEfectivo,
       totalPrice: Number(totalPrice.toFixed(2)),
     };
   }
@@ -182,10 +222,14 @@ export class PedidoService {
     const orderNumber = await this.generarNumeroPedido();
     const codigoPedido = await this.generarCodigoPedidoLegible();
 
+    const esEfectivo = data.payment.provider.toLowerCase() === CASH_PROVIDER;
+    const descuentoEfectivo = esEfectivo ? await this.calcularDescuentoEfectivo(data.items) : 0;
+
     const { subtotal, igv, shippingCost, recargoFinanciero, totalPrice } = this.calcularTotales(
       data.items,
       data.shippingCost,
-      data.payment.provider
+      data.payment.provider,
+      descuentoEfectivo
     );
 
     const nuevoPedido = new Pedido({
@@ -209,6 +253,7 @@ export class PedidoService {
       igv,
       shippingCost,
       recargoFinanciero,
+      descuentoEfectivo,
       totalPrice,
       currency: data.currency || 'PEN',
       status: EstadoPedido.AWAITING_PAYMENT,
@@ -633,6 +678,29 @@ export class PedidoService {
       entregadosCount: getCountByStatus(EstadoPedido.DELIVERED),
       canceladosCount: getCountByStatus(EstadoPedido.CANCELED),
     };
+  }
+
+  /**
+   * Confirma manualmente el pago de un pedido en efectivo o transferencia.
+   * Reutiliza el flujo de confirmación (estado, stock, correos).
+   */
+  async confirmarPagoManual(pedidoId: string, adminId?: string): Promise<IPedido> {
+    const pedido = await Pedido.findById(pedidoId);
+    if (!pedido) throw new AppError('Pedido no encontrado', 404);
+
+    const provider = pedido.payment.provider.toLowerCase();
+    if (!MANUAL_PAYMENT_PROVIDERS.includes(provider)) {
+      throw new AppError('Solo se pueden confirmar manualmente los pagos en efectivo o transferencia.', 400);
+    }
+    if (pedido.status !== EstadoPedido.AWAITING_PAYMENT) {
+      throw new AppError('Solo se puede confirmar el pago de pedidos pendientes de pago.', 400);
+    }
+    if (pedido.payment.status === EstadoPago.APPROVED) {
+      throw new AppError('Este pedido ya tiene el pago confirmado.', 400);
+    }
+
+    await this.confirmarPagoAprobado(pedido, `manual-${adminId ?? 'admin'}-${Date.now()}`);
+    return pedido;
   }
 
   async actualizarEstadoPedido(pedidoId: string, nuevoEstado: EstadoPedido, adminId?: string): Promise<IPedido> {

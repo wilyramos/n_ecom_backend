@@ -39,6 +39,7 @@ import pedidoRouter from './modules/pedidos/pedido.routes'
 import webhookRouterV3 from './modules/webhooks/webhook.routes'
 import ticketRouter from './modules/ticket/ticket.routes'
 import reportsRouterV3 from './modules/reports/reports.routes'
+import seoRouter from './modules/seo/seo.routes'
 
 import setupSwagger from './config/swagger.config'
 import collectionRouter from './modules/collection/collection.router'
@@ -85,6 +86,7 @@ app.use(
     webhookRouterV3
 )
 app.use('/api/tickets', ticketRouter)
+app.use('/api/seo', seoRouter)
 app.use('/api/reports/v3', reportsRouterV3)
 
 // Version 2.0: Refactor to use controllers and services for products and sales

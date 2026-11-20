@@ -188,6 +188,24 @@ export class PedidoController {
     }
   };
 
+  // Confirmar manualmente un pago en efectivo / transferencia (Admin / Vendedor)
+  confirmarPagoManual = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const adminId = req.user?._id?.toString() || req.user?.id;
+
+      const pedido = await this.pedidoService.confirmarPagoManual(id, adminId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Pago confirmado correctamente.',
+        data: pedido,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
  actualizarEstadoPedido = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;

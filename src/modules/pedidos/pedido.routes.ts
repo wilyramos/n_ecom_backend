@@ -80,6 +80,14 @@ router.get(
   pedidoController.obtenerPedidoPorId
 );
 
+// Confirmar pago manual de un pedido en efectivo / transferencia (Admin / Vendedor)
+router.post(
+  '/:id/confirmar-pago',
+  authenticate,
+  isAdminOrVendedor,
+  pedidoController.confirmarPagoManual
+);
+
 // Actualizar estado logístico de un pedido (Admin / Vendedor)
 router.patch(
   '/:id/status',

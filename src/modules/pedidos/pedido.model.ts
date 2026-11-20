@@ -120,6 +120,7 @@ export interface IPedido extends Document {
   igv: number;
   shippingCost: number;
   recargoFinanciero: number;
+  descuentoEfectivo: number;
   totalPrice: number;
   currency: string;
 
@@ -246,6 +247,7 @@ const pedidoSchema = new Schema<IPedido>(
     igv: { type: Number, required: true },
     shippingCost: { type: Number, default: 0 },
     recargoFinanciero: { type: Number, default: 0 },
+    descuentoEfectivo: { type: Number, default: 0 },
     totalPrice: { type: Number, required: true },
     currency: { type: String, default: 'PEN' },
 

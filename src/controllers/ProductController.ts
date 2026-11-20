@@ -211,9 +211,12 @@ export class ProductController {
 
             const filter: Record<string, any> = {};
 
+            // Escapamos el texto del usuario para que caracteres como "(" o "[" no rompan la regex
+            const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
             // Búsqueda global
             if (query) {
-                const searchRegex = new RegExp(query.trim(), "i");
+                const searchRegex = new RegExp(escapeRegex(query.trim()), "i");
                 filter.$or = [
                     { nombre: { $regex: searchRegex } },
                     { descripcion: { $regex: searchRegex } },
@@ -224,8 +227,8 @@ export class ProductController {
             }
 
             // Filtros específicos
-            if (nombre) filter.nombre = { $regex: new RegExp(nombre, "i") };
-            if (sku) filter.sku = { $regex: new RegExp(sku, "i") };
+            if (nombre) filter.nombre = { $regex: new RegExp(escapeRegex(nombre), "i") };
+            if (sku) filter.sku = { $regex: new RegExp(escapeRegex(sku), "i") };
 
             if (isActive === "true" || isActive === "false") {
                 filter.isActive = isActive === "true";
@@ -242,8 +245,13 @@ export class ProductController {
                 filter.brand = brand;
             }
 
-            console.log('Category filter value:', category);
-            if (category) filter.categoria = new mongoose.Types.ObjectId(category);
+            if (category) {
+                if (!mongoose.Types.ObjectId.isValid(category)) {
+                    res.status(400).json({ message: "Categoría inválida" });
+                    return;
+                }
+                filter.categoria = new mongoose.Types.ObjectId(category);
+            }
 
             // Ordenamiento
             const sort: Record<string, 1 | -1> = {};

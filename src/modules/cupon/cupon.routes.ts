@@ -1,3 +1,4 @@
+import { Request } from 'express';
 // File: backend/src/modules/cupon/cupon.routes.ts
 
 import { Router } from 'express';
@@ -15,12 +16,22 @@ import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
-// Límite por IP para evitar probar códigos en masa (trust proxy ya está activo en server.ts)
+// Límite por IP para evitar probar códigos en masa.
+// server.ts tiene trust proxy = true, así que req.ip toma el primer valor de X-Forwarded-For,
+// que el cliente puede falsificar. Aquí se usa la última IP de la cadena (la que añade el proxy).
+const ipConfiable = (req: Request): string => {
+  const xff = req.headers['x-forwarded-for'];
+  const ultima = typeof xff === 'string' ? xff.split(',').pop()?.trim() : undefined;
+  return ultima || req.socket.remoteAddress || 'desconocida';
+};
+
 const limitarValidacion = rateLimit({
   windowMs: 10 * 60 * 1000,
   limit: 30,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
+  keyGenerator: ipConfiable,
+  validate: { trustProxy: false }, // el keyGenerator propio no usa req.ip
   message: { success: false, message: 'Demasiados intentos con cupones. Intenta de nuevo en unos minutos.' },
 });
 

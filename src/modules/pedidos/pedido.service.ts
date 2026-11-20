@@ -17,6 +17,7 @@ import { OrderEmail } from '../../emails/OrderEmailResend';
 import { InventoryService } from '../inventory/inventory.service';
 import { AppError } from '../../utils/AppError';
 import Product from '../../models/Product';
+import { cuponService } from '../cupon/cupon.service';
 
 const MP_SURCHARGE_RATE = 0.12;
 // Descuento fijo por unidad de iPhone al pagar en efectivo/transferencia
@@ -116,13 +117,17 @@ export class PedidoService {
     items: CrearPedidoInput['items'],
     shippingCost: number,
     provider: string,
-    descuentoEfectivo = 0
+    descuentoEfectivo = 0,
+    descuentoCupon = 0
   ) {
     const montoTotalItems = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+    // El recargo de la pasarela se calcula sobre lo que realmente se cobra por productos (con cupón)
+    const baseProductos = montoTotalItems - descuentoCupon;
     const recargoFinanciero =
-      provider === 'mercadopago' ? Number((montoTotalItems * MP_SURCHARGE_RATE).toFixed(2)) : 0;
+      provider === 'mercadopago' ? Number((baseProductos * MP_SURCHARGE_RATE).toFixed(2)) : 0;
 
-    const totalPrice = montoTotalItems - descuentoEfectivo + shippingCost + recargoFinanciero;
+    const totalPrice =
+      baseProductos - descuentoEfectivo + shippingCost + recargoFinanciero;
     const subtotal = Number((totalPrice / 1.18).toFixed(2));
     const igv = Number((totalPrice - subtotal).toFixed(2));
 
@@ -132,6 +137,7 @@ export class PedidoService {
       shippingCost,
       recargoFinanciero,
       descuentoEfectivo,
+      descuentoCupon,
       totalPrice: Number(totalPrice.toFixed(2)),
     };
   }
@@ -225,11 +231,22 @@ export class PedidoService {
     const esEfectivo = data.payment.provider.toLowerCase() === CASH_PROVIDER;
     const descuentoEfectivo = esEfectivo ? await this.calcularDescuentoEfectivo(data.items) : 0;
 
+    // Cupón: se valida y recalcula en servidor. Si no es válido, el pedido no se crea.
+    const cupon = data.cuponCodigo
+      ? await cuponService.calcularDescuento({
+          codigo: data.cuponCodigo,
+          items: data.items,
+          email: data.customerProfile.email,
+        })
+      : null;
+    const descuentoCupon = cupon?.descuento ?? 0;
+
     const { subtotal, igv, shippingCost, recargoFinanciero, totalPrice } = this.calcularTotales(
       data.items,
       data.shippingCost,
       data.payment.provider,
-      descuentoEfectivo
+      descuentoEfectivo,
+      descuentoCupon
     );
 
     const nuevoPedido = new Pedido({
@@ -254,6 +271,8 @@ export class PedidoService {
       shippingCost,
       recargoFinanciero,
       descuentoEfectivo,
+      descuentoCupon,
+      cupon: cupon ?? undefined,
       totalPrice,
       currency: data.currency || 'PEN',
       status: EstadoPedido.AWAITING_PAYMENT,
